@@ -91,7 +91,6 @@ All tests pass (277+ tests across the full suite).
 
 - **Fully functional prototype** with complete RF stack implementation
 - **277+ automated tests passing** with zero failures
-- **Validated in collaboration** with PNUD Argentina
 - **PWA installable** with offline capabilities
 - **Gateway deployment documented** for Raspberry Pi/Orange Pi
 - **MIT Licensed** - Free for humanitarian use
@@ -152,7 +151,6 @@ Abrir `http://localhost:8000/index_integrated.html` en el navegador.
 
 - **Prototipo funcional completo** con stack RF implementado
 - **277+ pruebas automatizadas** sin fallos
-- **Validado** en colaboración con PNUD Argentina
 - **PWA instalable** con capacidades offline
 - **Gateway documentado** para Raspberry Pi/Orange Pi
 - **Licencia MIT** - Libre para uso humanitario

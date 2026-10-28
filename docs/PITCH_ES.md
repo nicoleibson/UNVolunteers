@@ -56,9 +56,9 @@ Lifeline Core crea una **red de comunicación descentralizada y auto-reparable**
 
 - **Funcionalidad Comprobada:** Prototipo completamente funcional con stack RF completo implementado
 - **Pruebas Robustas:** 277+ pruebas automatizadas sin fallos en todos los módulos
-- **Validación Humanitaria:** Pruebas documentadas y colaboración con **PNUD Argentina**
 - **Gateway Listo para Despliegue:** Documentación completa e instalador para Raspberry Pi/Orange Pi
 - **Capacidades PWA:** Aplicación web instalable y offline-first lista para despliegue en campo
+- **Optimizado para Android:** Diseñado específicamente para integrarse al ecosistema Android
 - **Desarrollo Continuo:** Validación constante mediante suites de pruebas comprehensivas
 
 ---
@@ -123,6 +123,8 @@ Este financiamiento permitirá el despliegue piloto real y el impacto comunitari
 
 ## Llamado a Acción
 
-Cada minuto sin comunicación en un desastre reduce las posibilidades de supervivencia. **Lifeline Core** cierra esta brecha crítica con tecnología accesible, económica y comprobada. Con el apoyo de Google.org, podemos transformar este prototipo open source en infraestructura que salva vidas para las comunidades que más lo necesitan.
+Cada minuto sin comunicación en un desastre reduce las posibilidades de supervivencia. **Lifeline Core** cierra esta brecha crítica con tecnología accesible, económica y comprobada. 
 
-**Juntos, podemos asegurar que cuando todo lo demás falla, las comunicaciones no fallen.**
+Este proyecto innovador, enfocado en Android y respuesta ante desastres, representa una funcionalidad valiosa que Google puede integrar a su ecosistema para fortalecer su capacidad de respuesta en situaciones de crisis.
+
+**Lifeline Core ofrece a Google una solución open-source robusta para asegurar que, cuando todo lo demás falla, las comunicaciones no fallen.**

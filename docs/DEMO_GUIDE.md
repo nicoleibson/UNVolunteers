@@ -39,8 +39,9 @@ This guide helps you demonstrate the key capabilities of Lifeline Core. You alre
 ### 4. Impact & Scalability (30-45 seconds)
 - **Cost:** Show it runs on repurposed Android phones
 - **Open Source:** Point to MIT license and GitHub repo
-- **Validation:** Mention PNUD Argentina collaboration and 277+ tests
+- **Validation:** Mention 277+ tests passing
 - **Scalability:** Show how cheap it is to deploy (RPi + LoRa vs satellite)
+- **Google Integration:** Emphasize Android-first design and potential for Google ecosystem integration
 
 ## Demo Environment Setup
 
