@@ -1,0 +1,16 @@
+[Unit]
+Description=Project Lifeline Core — gateway de borde
+After=network.target hostapd.service dnsmasq.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/lifeline/simulation/simulation
+ExecStart=/usr/bin/node server.js
+Restart=always
+RestartSec=2
+Environment=PORT=8000
+Environment=HOST=0.0.0.0
+Environment=LIFELINE_LABEL=GATEWAY
+
+[Install]
+WantedBy=multi-user.target

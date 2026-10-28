@@ -1,0 +1,1065 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Project Lifeline Core — AMRF v2.2 · PRODUCCIÓN (Stack RF real + sensores del dispositivo + malla descentralizada)</title>
+    <meta name="description" content="Producción: telemetría real del dispositivo (CBOR+LZ77+AES-CTR) sobre el stack RF real (LoRa + APRS + SDR). Cero datos de ejemplo.">
+    <meta name="theme-color" content="#0a1220">
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="icon" type="image/png" href="icons/icon-192.png">
+    <link rel="apple-touch-icon" href="icons/icon-192.png">
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --rf-green: #10b981;
+            --rf-blue: #3b82f6;
+            --rf-orange: #f59e0b;
+            --rf-purple: #a855f7;
+        }
+        .rf-panel { border: 1px solid rgba(255,255,255,0.1); }
+        .rf-panel .card-header {
+            padding: 12px 16px;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .rf-panel .card-header h2 { margin: 0; font-size: 0.8rem; letter-spacing: 0.1em; }
+        .rf-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 12px;
+            padding: 16px;
+        }
+        .rf-stat-box {
+            background: rgba(0,0,0,0.3);
+            border: 1px solid rgba(255,255,255,0.05);
+            border-radius: 8px;
+            padding: 12px;
+        }
+        .rf-stat-label {
+            font-size: 0.6rem;
+            color: var(--text-sub);
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            display: block;
+            margin-bottom: 4px;
+        }
+        .rf-stat-value {
+            font-family: var(--font-mono);
+            font-size: 1.1rem;
+            font-weight: 600;
+        }
+        .rf-bar {
+            height: 6px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 3px;
+            margin-top: 8px;
+            overflow: hidden;
+        }
+        .rf-bar-fill {
+            height: 100%;
+            border-radius: 3px;
+            transition: width 0.3s ease;
+        }
+        .packet-log {
+            background: rgba(0,0,0,0.4);
+            border: 1px solid rgba(255,255,255,0.05);
+            border-radius: 6px;
+            padding: 8px 12px;
+            font-family: var(--font-mono);
+            font-size: 0.65rem;
+            color: var(--text-sub);
+            max-height: 100px;
+            overflow-y: auto;
+            margin: 0 16px 16px;
+        }
+        .packet-log .packet-entry {
+            padding: 4px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.03);
+        }
+        .packet-log .packet-time {
+            color: var(--muted);
+            margin-right: 8px;
+        }
+        .packet-log .packet-type {
+            color: var(--rf-green);
+            font-weight: 600;
+        }
+        .packet-log .packet-type.aprs { color: var(--rf-orange); }
+        .packet-log .packet-type.sdr { color: var(--rf-purple); }
+        .status-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 8px;
+            animation: pulse 2s infinite;
+        }
+        .status-indicator.active { background: var(--rf-green); }
+        .status-indicator.simulated { background: var(--rf-orange); }
+        .status-indicator.inactive { background: #6b7280; animation: none; }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .freq-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-family: var(--font-mono);
+            font-size: 0.6rem;
+            font-weight: 600;
+        }
+        .freq-badge.lora { background: rgba(16,185,129,0.2); color: var(--rf-green); }
+        .freq-badge.aprs { background: rgba(245,158,11,0.2); color: var(--rf-orange); }
+        .freq-badge.sdr { background: rgba(168,85,247,0.2); color: var(--rf-purple); }
+        .canvas-small {
+            width: calc(100% - 32px);
+            height: 80px;
+            background: rgba(0,0,0,0.3);
+            border-radius: 6px;
+            margin: 12px 16px;
+        }
+        /* ── Rol del dispositivo ── */
+        .role-card { border: 1px solid rgba(255,255,255,0.1); }
+        .role-body { padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; }
+        .role-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            font-size: 0.7rem;
+        }
+        .role-key {
+            color: var(--text-sub);
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            font-size: 0.6rem;
+        }
+        .role-badge-victim {
+            background: rgba(239,68,68,0.18);
+            color: #ef4444;
+            border: 1px solid rgba(239,68,68,0.4);
+        }
+        .role-badge-scout {
+            background: rgba(16,185,129,0.18);
+            color: #10b981;
+            border: 1px solid rgba(16,185,129,0.4);
+        }
+        .role-badge-unknown {
+            background: rgba(100,116,139,0.18);
+            color: #94a3b8;
+            border: 1px solid rgba(100,116,139,0.4);
+        }
+    </style>
+</head>
+<body>
+
+<!-- Background ambient orbs -->
+<div class="glow-container">
+    <div class="glow-orb orb-1"></div>
+    <div class="glow-orb orb-2"></div>
+    <div class="glow-orb orb-3"></div>
+</div>
+
+<!-- ═══════════════ HEADER ═══════════════ -->
+<header>
+    <div class="header-logo">
+        <span class="pulse-dot" id="system-pulse"></span>
+        <div>
+            <h1>PROJECT LIFELINE CORE</h1>
+            <p class="header-sub">AMRF v2.2 · PRODUCCIÓN · <span id="rf-version">Stack RF real + sensores del dispositivo + malla HTTP descentralizada</span></p>
+        </div>
+        <span class="badge" id="system-state-badge">DORMANT</span>
+    </div>
+    <div class="header-stats">
+        <div class="stat-pill">
+            <span class="label">VIGILANCE TIMER</span>
+            <span id="vigilance-timer" class="mono">--:--</span>
+        </div>
+        <div class="stat-pill">
+            <span class="label">NODES ACTIVE</span>
+            <span id="stat-nodes" class="mono">0</span>
+        </div>
+        <div class="stat-pill">
+            <span class="label">PHY MODE</span>
+            <span id="stat-phy" class="mono">DORMANT</span>
+        </div>
+        <div class="stat-pill">
+            <span class="label">PACKETS / MIN</span>
+            <span id="stat-ppm" class="mono">0</span>
+        </div>
+        <div class="stat-pill">
+            <span class="label">RF LINKS</span>
+            <span id="stat-rf-links" class="mono">0</span>
+        </div>
+    </div>
+</header>
+
+<!-- ═══════════════ NAV MÓVIL (smartphone): pantallas + menú ampliable ═══════════════ -->
+<button class="mobile-nav-btn" id="mobile-nav" aria-label="Abrir menú de paneles" onclick="toggleMobileNav()">☰</button>
+<div class="mobile-overlay" id="mobile-overlay" onclick="closeMobileNav()"></div>
+<nav class="mobile-drawer" id="mobile-drawer" aria-label="Selección de pantallas">
+    <div class="mobile-drawer-head">
+        <span class="mobile-drawer-title">PANTALLAS</span>
+        <button class="mobile-drawer-close" onclick="closeMobileNav()">✕</button>
+    </div>
+    <ul class="mobile-nav-list" id="mobile-nav-list"></ul>
+    <div class="mobile-drawer-foot">
+        <button class="mobile-fullscreen-btn" id="btn-mobile-fullscreen" onclick="toggleFullscreen()">⛶ PANTALLA COMPLETA</button>
+    </div>
+</nav>
+
+<!-- ═══════════════ MAIN GRID ═══════════════ -->
+<main class="dashboard-grid">
+
+    <!-- ── PANEL R: Rol del dispositivo (clasificador automático) ── -->
+    <section class="card role-card" id="panel-role">
+        <div class="card-header">
+            <h2>Ⓡ ROL DEL DISPOSITIVO — CLASIFICACIÓN AUTOMÁTICA POR SENSORES</h2>
+            <span class="badge role-badge-unknown" id="device-role-badge">UNKNOWN</span>
+        </div>
+        <div class="role-body">
+            <div class="role-row">
+                <span class="role-key">Razón</span>
+                <span id="device-role-reason" class="mono" style="font-size:0.7rem;">INSUFFICIENT_SENSORS</span>
+            </div>
+            <div class="role-row">
+                <span class="role-key">Confianza</span>
+                <span id="device-role-conf" class="mono" style="font-size:0.7rem;">0%</span>
+            </div>
+            <div class="role-row">
+                <span class="role-key">Sensores activos</span>
+                <span id="sensor-sources" class="mono" style="font-size:0.62rem;">gps:— barometer:— thermometer:— light:— motion:— mic:— battery:—</span>
+            </div>
+        </div>
+    </section>
+
+    <!-- ── PANEL 1: Field Visualization Canvas ── -->
+    <section class="card viz-card" id="panel-viz">
+        <div class="card-header">
+            <h2>① FIELD DEPLOYMENT VISUALIZATION</h2>
+            <div class="indicator" id="radio-mode-badge">PHY: DORMANT</div>
+        </div>
+        <div class="viz-container">
+            <canvas id="mesh-canvas"></canvas>
+            <div class="floor-overlay">
+                <div class="floor-line surface-line"><span>Surface — Scout / UAV</span></div>
+                <div class="floor-line floor-1"><span>Floor −1 (Rubble)</span></div>
+                <div class="floor-line floor-2"><span>Floor −2 (Basement)</span></div>
+                <div class="floor-line floor-3"><span>Floor −3 (Deep Vault)</span></div>
+            </div>
+            <div class="crypto-toast" id="crypto-toast">
+                <span class="crypto-icon">🔒</span>
+                <span id="crypto-toast-text">Encrypted packet captured</span>
+            </div>
+        </div>
+        <div class="viz-controls">
+            <button class="btn btn-danger" id="btn-trigger-disaster">⚡ TRIGGER P-WAVE / CELL BROADCAST</button>
+            <button class="btn btn-secondary" id="btn-reset">↺ RESET SYSTEM</button>
+            <label class="switch-label">
+                <span>Auto-drain battery</span>
+                <label class="switch">
+                    <input type="checkbox" id="control-auto-drain">
+                    <span class="toggle-slider"></span>
+                </label>
+            </label>
+        </div>
+    </section>
+
+    <!-- ── PANEL 2: AMRF Device Controls ── -->
+    <section class="card controls-card" id="panel-controls">
+        <div class="card-header">
+            <h2>② AMRF DEVICE — HARDWARE CONTROLS</h2>
+        </div>
+        <div class="control-sections">
+            <!-- Power -->
+            <div class="control-group">
+                <h3>🔋 Power &amp; Duty Cycle</h3>
+                <div class="control-row">
+                    <label for="control-battery">Battery: <span id="val-battery" class="mono accent">100%</span></label>
+                    <div class="slider-wrap">
+                        <input type="range" id="control-battery" min="1" max="100" value="100" class="slider">
+                        <div class="battery-bar" id="battery-bar"></div>
+                    </div>
+                </div>
+                <div class="control-row toggle-row">
+                    <label>Multi-hop relay (deep node path):</label>
+                    <label class="switch">
+                        <input type="checkbox" id="control-relay-active">
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+            </div>
+
+            <!-- Biometrics -->
+            <div class="control-group">
+                <h3>❤️ Wear OS Biometrics</h3>
+                <div class="control-row toggle-row">
+                    <label>Smartwatch on-body (PPG):</label>
+                    <label class="switch">
+                        <input type="checkbox" id="control-wearable-body" checked>
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+                <div class="control-row">
+                    <label>Heart Rate: <span id="val-bpm" class="mono accent">—</span></label>
+                </div>
+                <div class="control-row">
+                    <label>SpO₂: <span id="val-spo2" class="mono accent">—</span></label>
+                </div>
+                <div class="info-note">Pulso y oxígeno muestran <b>—</b> hasta que una fuente real los provea (un puente BLE del wearable); el navegador no expone API web de estas señales.</div>
+            </div>
+
+            <!-- Pressure & Depth -->
+            <div class="control-group">
+                <h3>📡 Barometric Altimetry</h3>
+                <div class="control-row">
+                    <label for="control-pressure">Trapped Pressure: <span id="val-pressure" class="mono accent">1013.25 hPa</span></label>
+                    <input type="range" id="control-pressure" min="95000" max="105000" value="101325" step="10" class="slider">
+                </div>
+                <div class="depth-result-box">
+                    <span class="depth-label">Estimated depth (Δh)</span>
+                    <span class="depth-value" id="depth-display">0.00 m</span>
+                </div>
+                <div class="math-formula">Δh = (R·T / g·M) · ln(P<sub>trapped</sub> / P<sub>start</sub>)</div>
+                <div class="info-note">P<sub>start</sub> = 1013.25 hPa fijado al inicio del evento P-wave. Si el dispositivo tiene barómetro real (Chromium Sensor API), se usa su lectura.</div>
+            </div>
+
+            <!-- Manual Triggers -->
+            <div class="control-group">
+                <h3>🆘 Manual Distress Actions</h3>
+                <div class="btn-grid">
+                    <button class="btn btn-action" id="btn-trigger-tap">TAP SOS (3-TAP PATTERN)</button>
+                    <button class="btn btn-action" id="btn-touch-interaction">SIMULATE SCREEN TOUCH</button>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ── PANEL 3: Algorithmic Telemetry ── -->
+    <section class="card telemetry-card" id="panel-telemetry">
+        <div class="card-header">
+            <h2>③ CORE ALGORITHMIC TELEMETRY</h2>
+        </div>
+        <div class="telemetry-body">
+            <div class="metric-container">
+                <div class="metric-header">
+                    <span>User Presence Index (IPU)</span>
+                    <span id="ipu-value" class="mono">0.00</span>
+                </div>
+                <div class="progress-bar-bg">
+                    <div class="progress-bar-fill" id="ipu-fill"></div>
+                </div>
+                <div class="triage-status-display">
+                    <span>START Classification:</span>
+                    <span class="triage-badge triage-green" id="triage-badge-value">GREEN (STABLE)</span>
+                </div>
+            </div>
+
+            <div class="status-grid">
+                <div class="status-item">
+                    <span class="label">RADIO STATE</span>
+                    <span class="value" id="status-radio">DORMANT</span>
+                </div>
+                <div class="status-item">
+                    <span class="label">ADV INTERVAL</span>
+                    <span class="value" id="status-interval">N/A</span>
+                </div>
+                <div class="status-item">
+                    <span class="label">TX POWER</span>
+                    <span class="value" id="status-tx-power">N/A</span>
+                </div>
+                <div class="status-item">
+                    <span class="label">MULTI-HOP</span>
+                    <span class="value" id="status-relay">INACTIVE</span>
+                </div>
+            </div>
+
+            <div class="console-box">
+                <div class="console-header">
+                    <span>AOSP EmergencyLog Subsystem</span>
+                    <span class="live-dot"></span>
+                </div>
+                <div class="console-lines" id="log-output">
+                    <div class="log-line text-muted">[System] Esperando el broadcast crítico.</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ── PANEL 4: Scout Radar (E2E Decrypted View) ── -->
+    <section class="card scout-radar-card" id="panel-scout">
+        <div class="card-header">
+            <h2>④ SCOUT RECEIVER — DECRYPTED TRIAGE TABLE</h2>
+            <div class="scanner-wrap">
+                <div class="pulse-dot" id="scanner-indicator"></div>
+                <span class="mono" style="font-size:0.65rem; color:#94a3b8;">MESH SCAN</span>
+            </div>
+        </div>
+        <div class="radar-body">
+            <div class="radar-scan-box">
+                <table class="radar-table" id="radar-table">
+                    <thead>
+                        <tr>
+                            <th>NODE ID</th>
+                            <th>TRIAGE</th>
+                            <th>DEPTH</th>
+                            <th>PISO</th>
+                            <th>GPS</th>
+                            <th>VITALS</th>
+                            <th>ATM</th>
+                            <th>RSSI</th>
+                            <th>BATT</th>
+                            <th>SEÑAL</th>
+                            <th>ACTION</th>
+                        </tr>
+                    </thead>
+                    <tbody id="radar-victim-list">
+                        <tr>
+                            <td colspan="9" class="text-center text-muted">
+                                Sin beacons detectados. Dispara un P-Wave para iniciar.
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="radar-footer">
+                <div class="radar-legend">
+                    <span class="triage-badge triage-red" style="font-size:0.6rem;">RED</span>
+                    <span class="triage-badge triage-yellow" style="font-size:0.6rem;">YELLOW</span>
+                    <span class="triage-badge triage-green" style="font-size:0.6rem;">GREEN</span>
+                    <span class="triage-badge triage-black" style="font-size:0.6rem;">BLACK</span>
+                    <span style="font-size:0.65rem; color:#8b5cf6; margin-left:8px;">◈ RELAYED</span>
+                    <span style="font-size:0.65rem; color:#06b6d4; margin-left:8px;">◉ LOCAL</span>
+                </div>
+                <button class="btn btn-primary" id="btn-ping-all" disabled>📡 PING ALL NODES</button>
+            </div>
+
+            <!-- Flecha táctica: vector de rescate UWB + IMU (brújula dinámica) -->
+            <div class="rescue-box">
+                <div class="rescue-head">
+                    <span style="font-family:var(--font-mono);letter-spacing:0.1em;font-size:0.62rem;color:var(--rf-blue);text-transform:uppercase;">⬡ Overlay táctico · UWB + IMU</span>
+                    <span id="rescue-status" style="font-size:0.6rem;color:#64748b;">SIN VECTOR</span>
+                </div>
+                <div id="tactical-summary" class="tactical-summary" style="font-family:var(--font-mono);font-size:0.62rem;color:var(--rf-blue);text-align:center;">TÁCTICA: sin vector — sin datos qué consolidar</div>
+                <canvas id="rescue-canvas" width="200" height="200" class="rescue-canvas"></canvas>
+                <div id="rescue-readout" class="rescue-readout" style="font-family:var(--font-mono);font-size:0.62rem;color:var(--text-sub);text-align:center;">— · sin distancia UWB</div>
+                <div id="excavation-suggestion" class="excavation-suggestion" style="font-family:var(--font-mono);font-size:0.62rem;color:var(--rf-green);text-align:center;">Punto de excavación: — · sin vector</div>
+                <div class="tactical-actions">
+                    <button class="btn btn-tactical tactical-on" id="btn-tactical-mode">⬡ MODO TÁCTICA: ON</button>
+                </div>
+            </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ── ENLACE DE CAMPO (WebRTC P2P) para pruebas con dos dispositivos ── -->
+    <section class="card" id="panel-field">
+        <div class="card-header">
+            <h2>⤻ ENLACE DE CAMPO · WEBRTC P2P</h2>
+            <div class="scanner-wrap">
+                <span class="mono" style="font-size:0.65rem; color:#06b6d4;">ESCUCHA DE SENSORES REMOTOS</span>
+            </div>
+        </div>
+        <div class="radar-body" style="padding:10px;">
+            <div class="rescue-box rtc-box" id="rtc-box">
+                <div class="rescue-head">
+                    <span style="font-family:var(--font-mono);letter-spacing:0.1em;font-size:0.62rem;color:var(--rf-green);text-transform:uppercase;">⤻ Modo esclavo (campo) · WebRTC P2P</span>
+                    <span id="rtc-status" style="font-size:0.6rem;color:#64748b;">SIN ENLACE</span>
+                </div>
+                <div class="rtc-mode-switch" style="margin:6px 0; padding:6px; border:1px solid var(--border); border-radius:6px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; background:rgba(0,0,0,0.22);">
+                    <button class="btn btn-rtc-mode" id="btn-rtc-mode" style="font-size:0.62rem;">⤻ MODO: -</button>
+                    <span id="rtc-mode-state" style="font-size:0.62rem;color:#64748b;">Sin modo — pulsa para elegir ESCLAVO (emisor) o MAESTRO (receptor).</span>
+                </div>
+                <label style="font-family:var(--font-mono);font-size:0.58rem;color:var(--muted);width:100%;">Pegar (OFERTA o RESPUESTA) →</label>
+                <textarea id="rtc-sdp-in" rows="3" spellcheck="false" style="width:100%;background:#0a1220;color:#a5f3fc;border:1px solid #334155;border-radius:4px;font-family:var(--font-mono);font-size:0.6rem;padding:6px;"></textarea>
+                <label style="font-family:var(--font-mono);font-size:0.58rem;color:var(--muted);width:100%;">← Copiar de aquí →</label>
+                <textarea id="rtc-sdp-out" rows="3" readonly spellcheck="false" style="width:100%;background:#0a1220;color:#86efac;border:1px solid #334155;border-radius:4px;font-family:var(--font-mono);font-size:0.6rem;padding:6px;"></textarea>
+                <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center;">
+                    <button class="btn btn-secondary" id="btn-rtc-offer" style="font-size:0.6rem;">① CREAR OFERTA</button>
+                    <button class="btn btn-secondary" id="btn-rtc-accept" style="font-size:0.6rem;">② PEGAR OFERTA → RESPONDER</button>
+                    <button class="btn btn-secondary" id="btn-rtc-complete" style="font-size:0.6rem;">③ PEGAR RESPUESTA → EMITIR</button>
+                    <button class="btn btn-secondary" id="btn-rtc-close" style="font-size:0.6rem;">✖ CERRAR</button>
+                </div>
+                <div style="font-family:var(--font-mono);font-size:0.56rem;color:var(--muted);text-align:center;">
+                    Esclavo (con sensores): ① → pega en el maestro → ③. Maestro (Scout): ② → pega la respuesta en el esclavo.
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ── DETECCIONES EN VIVO: reflejo inmediato de los datos recibidos ── -->
+    <section class="card" id="panel-detections">
+        <div class="card-header">
+            <h2>⬤ DETECCIONES EN VIVO</h2>
+            <div class="indicator" style="display:flex;align-items:center;gap:8px;">
+                <span id="detection-count" style="font-size:0.65rem;color:var(--rf-blue);">0</span>
+                <button class="btn btn-sm" id="btn-clear-detections" onclick="clearDetections()">LIMPIAR</button>
+            </div>
+        </div>
+        <div class="radar-scan-box">
+            <table class="radar-table det-table" id="detection-table">
+                <thead>
+                    <tr>
+                        <th>NODO</th>
+                        <th>EVENTO</th>
+                        <th>DATOS RECIBIDOS</th>
+                    </tr>
+                </thead>
+                <tbody id="detection-feed-list">
+                    <tr>
+                        <td colspan="3" class="text-center text-muted">
+                            Sin detecciones — esperando datos de nodos reales.
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <!-- ── PANEL 5: Telemetry Packet Visualizer (wire format real) ── -->
+    <section class="card ecies-card" id="panel-ecies">
+        <div class="card-header">
+            <h2>⑤ TELEMETRY PACKET — WIRE FORMAT (CBOR + LZ77 + AES-CTR)</h2>
+            <div class="indicator" id="ecies-status">IDLE</div>
+        </div>
+        <div class="ecies-body">
+            <div class="wire-format">
+                <div class="wire-segment" id="seg-ephpub">
+                    <div class="wire-label">HEADER (CBOR)</div>
+                    <div class="wire-bytes" id="bytes-ephpub">-- -- -- --</div>
+                    <div class="wire-size">23 bytes · type/source/dest/seq/len</div>
+                </div>
+                <div class="wire-sep">+</div>
+                <div class="wire-segment" id="seg-iv">
+                    <div class="wire-label">AES NONCE</div>
+                    <div class="wire-bytes" id="bytes-iv">-- -- -- --</div>
+                    <div class="wire-size">8 bytes · AES-CTR</div>
+                </div>
+                <div class="wire-sep">+</div>
+                <div class="wire-segment" id="seg-cipher">
+                    <div class="wire-label">CIPHERTEXT (LZ77 + AES-CTR)</div>
+                    <div class="wire-bytes" id="bytes-cipher">-- -- -- --</div>
+                    <div class="wire-size" id="size-cipher">N bytes · CBOR+LZ77+AES-CTR</div>
+                </div>
+                <div class="wire-sep">+</div>
+                <div class="wire-segment" id="seg-tag">
+                    <div class="wire-label">MIC (CMAC)</div>
+                    <div class="wire-bytes" id="bytes-tag">-- -- -- --</div>
+                    <div class="wire-size">4 bytes · AES-CMAC</div>
+                </div>
+            </div>
+
+            <div class="ecies-arrow">
+                <div class="arrow-line"></div>
+                <span class="arrow-label">Local device → PacketBuilder (CBOR+LZ77) → AES-CTR encrypt</span>
+                <div class="arrow-head">▼</div>
+            </div>
+
+            <div class="decrypted-result" id="decrypted-panel">
+                <div class="decrypt-row">
+                    <span class="decrypt-key">🌐 GPS</span>
+                    <span class="decrypt-val" id="dec-gps">—</span>
+                </div>
+                <div class="decrypt-row">
+                    <span class="decrypt-key">❤️ BPM</span>
+                    <span class="decrypt-val" id="dec-bpm">—</span>
+                </div>
+                <div class="decrypt-row">
+                    <span class="decrypt-key">🫁 SpO₂</span>
+                    <span class="decrypt-val" id="dec-spo2">—</span>
+                </div>
+                <div class="decrypt-row">
+                    <span class="decrypt-key">📏 Depth</span>
+                    <span class="decrypt-val" id="dec-depth">—</span>
+                </div>
+                <div class="decrypt-row">
+                    <span class="decrypt-key">🚨 START</span>
+                    <span class="decrypt-val" id="dec-triage"><span class="triage-badge triage-green">—</span></span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ── PANEL 6: Deployment Specs ── -->
+    <section class="card deployment-card" id="panel-deploy">
+        <div class="card-header">
+            <h2>⑥ DEPLOYMENT &amp; ECOSYSTEM STRATEGY</h2>
+        </div>
+        <div class="deployment-body">
+            <div class="tab-buttons">
+                <button class="tab-btn active" data-tab="tab-apex">APEX Mainline</button>
+                <button class="tab-btn" data-tab="tab-sidecar">Play Services</button>
+                <button class="tab-btn" data-tab="tab-cdd">CTS / CDD</button>
+            </div>
+            <div class="tab-content" id="tab-apex">
+                <h3>Modular Project Mainline Update</h3>
+                <p>Packaged as a Play System Update under <code>com.google.android.connectivity.apex</code>.</p>
+                <ul>
+                    <li><strong>Coverage:</strong> Android 10+ — 85%+ of global active devices</li>
+                    <li><strong>Deployment:</strong> Silent OTA, no user interaction required</li>
+                    <li><strong>Permissions:</strong> Signature-level <code>MANAGE_EMERGENCY_BROADCAST</code></li>
+                </ul>
+            </div>
+            <div class="tab-content hidden" id="tab-sidecar">
+                <h3>Google Play Services Companion APK</h3>
+                <p>Legacy fallback for Android 6.0–9.0 (API 23–28).</p>
+                <ul>
+                    <li><strong>Role:</strong> Passive Scout relay — scan-only, no active beaconing</li>
+                    <li><strong>Function:</strong> Caches encrypted BLE payloads, forwards on network recovery</li>
+                </ul>
+            </div>
+            <div class="tab-content hidden" id="tab-cdd">
+                <h3>Android Compatibility Definitions</h3>
+                <p>Legal and architectural rules for next-generation devices.</p>
+                <ul>
+                    <li><strong>CDD §7.4.3:</strong> BLE Long Range and UWB hardware must pass emergency beacon CTS</li>
+                    <li><strong>CTS bound:</strong> Beacon launch within 500 ms of Cell Broadcast interrupt</li>
+                </ul>
+            </div>
+        </div>
+    </section>
+
+    <!-- ── PANEL 7: Geospatial Map ── -->
+    <section class="card map-card" id="panel-map">
+        <div class="card-header">
+            <h2>⑦ TOP-DOWN GEOSPATIAL RADAR</h2>
+            <div class="indicator" style="color:var(--primary); border-color:var(--primary)">GPS SYNCHED</div>
+        </div>
+        <div class="map-body" style="height:250px; position:relative; background:rgba(0,0,0,0.4); border-top:1px solid var(--border)">
+            <canvas id="topdown-canvas" style="width:100%; height:100%; display:block;"></canvas>
+        </div>
+    </section>
+
+    <!-- ── PANEL 8: Tactical Intercom ── -->
+    <section class="card intercom-card" id="panel-intercom">
+        <div class="card-header">
+            <h2>⑧ TACTICAL INTERCOM (TTS)</h2>
+        </div>
+        <div class="intercom-body" style="display:flex; flex-direction:column; height:250px; padding:12px; gap:10px;">
+            <div class="chat-log" id="intercom-log" style="flex:1; overflow-y:auto; background:rgba(0,0,0,0.2); border:1px solid var(--border); border-radius:6px; padding:8px; display:flex; flex-direction:column; gap:6px; font-family:var(--font-mono); font-size:0.65rem;">
+                <div style="color:var(--muted)">[SYS] Módulo de uplink offline. Esperando señal de socorro.</div>
+            </div>
+            <div class="chat-controls" style="display:flex; flex-direction:column; gap:6px;">
+                <select id="intercom-target-select" class="dropdown" style="background:rgba(0,0,0,0.5); color:var(--text); border:1px solid var(--border); padding:6px; border-radius:4px; font-family:var(--font-mono); font-size:0.65rem;" disabled>
+                    <option value="ALL">BROADCAST TO ALL NODES</option>
+                </select>
+                <div style="display:flex; gap:6px;">
+                    <input type="text" id="intercom-input" placeholder="Type text-to-speech message..." style="flex:1; background:rgba(0,0,0,0.5); border:1px solid var(--border); color:var(--text); padding:6px 10px; border-radius:4px; font-family:var(--font-sans); font-size:0.75rem;" disabled>
+                    <button class="btn btn-action" id="btn-intercom-send" disabled>SEND</button>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ── PANEL 9: Live Vitals Timeline ── -->
+    <section class="card vitals-card" id="panel-vitals">
+        <div class="card-header">
+            <h2>⑨ LIVE VITALS TIMELINE</h2>
+            <div class="indicator" id="vitals-status" style="color:var(--danger); border-color:var(--danger)">RECORDING</div>
+        </div>
+        <div class="vitals-body" style="padding:16px; display:flex; flex-direction:column; gap:12px;">
+            <div style="display:flex; gap:16px; flex-wrap:wrap;">
+                <div class="vitals-stat-box">
+                    <span class="vitals-stat-label">❤️ BPM TREND</span>
+                    <span class="vitals-stat-value" id="vitals-bpm-trend">—</span>
+                </div>
+                <div class="vitals-stat-box">
+                    <span class="vitals-stat-label">🫁 SpO₂ TREND</span>
+                    <span class="vitals-stat-value" id="vitals-spo2-trend">—</span>
+                </div>
+                <div class="vitals-stat-box">
+                    <span class="vitals-stat-label">⏱️ TIME TRAPPED</span>
+                    <span class="vitals-stat-value" id="vitals-time-trapped">00:00:00</span>
+                </div>
+                <div class="vitals-stat-box">
+                    <span class="vitals-stat-label">🔋 EST. REMAINING</span>
+                    <span class="vitals-stat-value" id="vitals-battery-eta">—</span>
+                </div>
+            </div>
+            <div style="position:relative; height:130px; background:rgba(0,0,0,0.25); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+                <canvas id="vitals-chart" style="width:100%; height:100%; display:block;"></canvas>
+            </div>
+            <div style="display:flex; gap:12px; font-size:0.6rem; font-family:var(--font-mono); color:var(--text-sub);">
+                <span style="color:#ef4444;">● BPM</span>
+                <span style="color:#3b82f6;">● SpO₂</span>
+                <span style="color:#f59e0b;">● Battery %</span>
+                <span style="margin-left:auto; color:var(--muted);">60s rolling window</span>
+            </div>
+        </div>
+    </section>
+
+    <!-- ── PANEL 10: Environmental & Structural Intelligence ── -->
+    <section class="card environ-card" id="panel-environ">
+        <div class="card-header">
+            <h2>⑩ ENVIRONMENTAL INTEL</h2>
+        </div>
+        <div class="environ-body" style="padding:16px; display:flex; flex-direction:column; gap:14px;">
+            <div class="env-sensor-grid">
+                <div class="env-sensor-item">
+                    <span class="env-icon">🌡️</span>
+                    <span class="env-label">TEMPERATURE</span>
+                    <span class="env-value" id="env-temp">—</span>
+                </div>
+                <div class="env-sensor-item">
+                    <span class="env-icon">💡</span>
+                    <span class="env-label">LIGHT (LUX)</span>
+                    <span class="env-value" id="env-light">—</span>
+                </div>
+                <div class="env-sensor-item">
+                    <span class="env-icon">🎤</span>
+                    <span class="env-label">MIC LEVEL</span>
+                    <span class="env-value" id="env-mic">—</span>
+                </div>
+                <div class="env-sensor-item">
+                    <span class="env-icon">📐</span>
+                    <span class="env-label">TILT (°)</span>
+                    <span class="env-value" id="env-tilt">—</span>
+                </div>
+            </div>
+            <div style="border-top:1px solid var(--border); padding-top:12px;">
+                <div style="font-size:0.6rem; font-family:var(--font-mono); color:var(--text-sub); letter-spacing:0.08em; text-transform:uppercase; margin-bottom:8px;">STRUCTURAL COLLAPSE PROFILE</div>
+                <div style="display:flex; gap:8px; align-items:center;">
+                    <div class="collapse-type-badge" id="collapse-type">UNKNOWN</div>
+                    <span style="font-size:0.65rem; color:var(--text-sub);" id="collapse-desc">Esperando datos de inclinación...</span>
+                </div>
+            </div>
+            <div style="border-top:1px solid var(--border); padding-top:12px;">
+                <div style="font-size:0.6rem; font-family:var(--font-mono); color:var(--text-sub); letter-spacing:0.08em; text-transform:uppercase; margin-bottom:8px;">AIR POCKET ESTIMATION</div>
+                <div style="display:flex; gap:16px; align-items:center;">
+                    <div class="progress-bar-bg" style="flex:1; height:8px;">
+                        <div class="progress-bar-fill" id="air-pocket-fill" style="width:0%; background:linear-gradient(to right, #ef4444, #f59e0b, #10b981);"></div>
+                    </div>
+                    <span style="font-family:var(--font-mono); font-size:0.75rem; color:var(--primary); font-weight:600;" id="air-pocket-val">—</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ══════════ RF PANELS (STACK REAL) ══════════ -->
+
+    <!-- ── PANEL 11: LoRa Mesh Network ── -->
+    <section class="card rf-panel" id="panel-lora" style="grid-column: span 2;">
+        <div class="card-header">
+            <h2><span class="status-indicator inactive" id="lora-status-ind"></span>⑪ LORA MESH NETWORK</h2>
+            <div>
+                <span class="freq-badge lora">US915</span>
+                <span style="font-family:var(--font-mono); font-size:0.7rem; color:var(--text-sub); margin-left:8px;" id="lora-freq-display">915.000 MHz</span>
+            </div>
+        </div>
+        <div class="rf-grid">
+            <div class="rf-stat-box">
+                <span class="rf-stat-label">NODES</span>
+                <span class="rf-stat-value" id="lora-nodes" style="color:var(--rf-green);">0</span>
+            </div>
+            <div class="rf-stat-box">
+                <span class="rf-stat-label">PACKETS TX</span>
+                <span class="rf-stat-value" id="lora-tx-count" style="color:var(--rf-blue);">0</span>
+            </div>
+            <div class="rf-stat-box">
+                <span class="rf-stat-label">PACKETS RX</span>
+                <span class="rf-stat-value" id="lora-rx-count" style="color:var(--rf-blue);">0</span>
+            </div>
+            <div class="rf-stat-box">
+                <span class="rf-stat-label">HOPS (AVG)</span>
+                <span class="rf-stat-value" id="lora-avg-hops" style="color:var(--rf-orange);">0</span>
+            </div>
+            <div class="rf-stat-box">
+                <span class="rf-stat-label">RSSI</span>
+                <span class="rf-stat-value" id="lora-rssi" style="color:var(--rf-green);">—</span>
+                <div class="rf-bar"><div class="rf-bar-fill" id="lora-rssi-bar" style="width:0%; background:var(--rf-green);"></div></div>
+            </div>
+            <div class="rf-stat-box">
+                <span class="rf-stat-label">SNR</span>
+                <span class="rf-stat-value" id="lora-snr" style="color:var(--rf-blue);">—</span>
+            </div>
+            <div class="rf-stat-box">
+                <span class="rf-stat-label">SPREADING FACTOR</span>
+                <span class="rf-stat-value" id="lora-sf" style="color:var(--rf-purple);">SF10</span>
+            </div>
+            <div class="rf-stat-box">
+                <span class="rf-stat-label">BANDWIDTH</span>
+                <span class="rf-stat-value" id="lora-bw" style="color:var(--text-main);">BW125</span>
+            </div>
+        </div>
+        <canvas class="canvas-small" id="lora-waveform-canvas"></canvas>
+        <div class="packet-log" id="lora-packet-log">
+            <div class="packet-entry"><span class="packet-time">[SYS]</span> <span class="packet-type">LoRa</span> — Esperando el disparo de emergencia...</div>
+        </div>
+    </section>
+
+    <!-- ── PANEL 12: APRS Protocol ── -->
+    <section class="card rf-panel" id="panel-aprs">
+        <div class="card-header">
+            <h2><span class="status-indicator inactive" id="aprs-status-ind"></span>⑫ APRS TRACKING</h2>
+            <span class="freq-badge aprs">VHF 2m</span>
+        </div>
+        <div class="rf-grid" style="grid-template-columns: repeat(2, 1fr);">
+            <div class="rf-stat-box">
+                <span class="rf-stat-label">FREQUENCY</span>
+                <span class="rf-stat-value" id="aprs-freq" style="color:var(--rf-orange);">144.390 MHz</span>
+            </div>
+            <div class="rf-stat-box">
+                <span class="rf-stat-label">CALLSIGN</span>
+                <span class="rf-stat-value" id="aprs-callsign" style="color:var(--rf-blue); font-size:0.85rem;">—</span>
+            </div>
+            <div class="rf-stat-box">
+                <span class="rf-stat-label">POSITIONS TX</span>
+                <span class="rf-stat-value" id="aprs-tx-count" style="color:var(--rf-green);">0</span>
+            </div>
+            <div class="rf-stat-box">
+                <span class="rf-stat-label">PACKETS RECEIVED</span>
+                <span class="rf-stat-value" id="aprs-rx-count" style="color:var(--rf-green);">0</span>
+            </div>
+            <div class="rf-stat-box">
+                <span class="rf-stat-label">IGATE STATUS</span>
+                <span class="rf-stat-value" id="aprs-igate" style="color:var(--rf-orange);">OFFLINE (NO IGATE)</span>
+            </div>
+            <div class="rf-stat-box">
+                <span class="rf-stat-label">DIGIPEATER</span>
+                <span class="rf-stat-value" id="aprs-digipeater" style="color:var(--text-main);">N/A (MESH RELAY)</span>
+            </div>
+        </div>
+        <div class="packet-log" id="aprs-packet-log">
+            <div class="packet-entry"><span class="packet-time">[SYS]</span> <span class="packet-type aprs">APRS</span> — APRS inactivo sin indicativo configurado.</div>
+        </div>
+    </section>
+
+    <!-- ── PANEL 13: SDR Receiver ── -->
+    <section class="card rf-panel" id="panel-sdr">
+        <div class="card-header">
+            <h2><span class="status-indicator inactive" id="sdr-status-ind"></span>⑬ SDR RECEIVER</h2>
+            <span class="freq-badge sdr">SDR</span>
+        </div>
+        <div class="rf-grid" style="grid-template-columns: repeat(2, 1fr);">
+            <div class="rf-stat-box">
+                <span class="rf-stat-label">CENTER FREQ</span>
+                <span class="rf-stat-value" id="sdr-center-freq" style="color:var(--rf-purple);">433.000 MHz</span>
+            </div>
+            <div class="rf-stat-box">
+                <span class="rf-stat-label">SAMPLE RATE</span>
+                <span class="rf-stat-value" id="sdr-sample-rate" style="color:var(--text-main);">96.0 kHz</span>
+            </div>
+            <div class="rf-stat-box">
+                <span class="rf-stat-label">SIGNALS FOUND</span>
+                <span class="rf-stat-value" id="sdr-signals" style="color:var(--rf-blue);">0</span>
+            </div>
+            <div class="rf-stat-box">
+                <span class="rf-stat-label">DECODED PKTS</span>
+                <span class="rf-stat-value" id="sdr-decoded" style="color:var(--rf-green);">0</span>
+            </div>
+        </div>
+        <canvas class="canvas-small" id="sdr-spectrum-canvas"></canvas>
+        <div class="packet-log" id="sdr-packet-log">
+            <div class="packet-entry"><span class="packet-time">[SYS]</span> <span class="packet-type sdr">SDR</span> — Esperando señal de entrada...</div>
+        </div>
+    </section>
+
+    <!-- ── PANEL 14: Frequency Allocation ── -->
+    <section class="card rf-panel" id="panel-spectrum">
+        <div class="card-header">
+            <h2>⑭ FREQUENCY ALLOCATION</h2>
+        </div>
+        <div class="rf-grid" style="grid-template-columns: repeat(2, 1fr);">
+            <div class="rf-stat-box" style="border-left: 3px solid var(--rf-green);">
+                <span class="rf-stat-label">ISM 915 MHz</span>
+                <span class="rf-stat-value" style="color:var(--rf-green); font-size:0.8rem;">LoRa Primary</span>
+                <span style="font-size:0.55rem; color:var(--text-sub);">902-928 MHz (FHSS)</span>
+            </div>
+            <div class="rf-stat-box" style="border-left: 3px solid var(--rf-orange);">
+                <span class="rf-stat-label">VHF 2m</span>
+                <span class="rf-stat-value" style="color:var(--rf-orange); font-size:0.8rem;">APRS 144.390</span>
+                <span style="font-size:0.55rem; color:var(--text-sub);">144.0-148.0 MHz (Amateur)</span>
+            </div>
+            <div class="rf-stat-box" style="border-left: 3px solid var(--rf-purple);">
+                <span class="rf-stat-label">ISM 433 MHz</span>
+                <span class="rf-stat-value" style="color:var(--rf-purple); font-size:0.8rem;">SDR Monitoring</span>
+                <span style="font-size:0.55rem; color:var(--text-sub);">433.05-434.79 MHz</span>
+            </div>
+            <div class="rf-stat-box" style="border-left: 3px solid var(--rf-blue);">
+                <span class="rf-stat-label">HF (Planned)</span>
+                <span class="rf-stat-value" style="color:var(--rf-blue); font-size:0.8rem;">Backup Channel</span>
+                <span style="font-size:0.55rem; color:var(--text-sub);">7.030 MHz (40m LSB)</span>
+            </div>
+        </div>
+        <canvas class="canvas-small" id="freq-alloc-canvas"></canvas>
+    </section>
+
+    <!-- ── PANEL 15: RF Console ── -->
+    <section class="card rf-panel" id="panel-rfconsole">
+        <div class="card-header">
+            <h2><span class="status-indicator inactive" id="rf-status-ind"></span>⑮ RF CONSOLE</h2>
+            <span class="freq-badge lora" id="rf-current-freq">915.000 MHz</span>
+        </div>
+        <div class="rf-grid" style="grid-template-columns: repeat(3, 1fr);">
+            <div class="rf-stat-box">
+                <span class="rf-stat-label">SPREADING FACTOR</span>
+                <span class="rf-stat-value" id="rf-current-sf" style="color:var(--rf-purple);">SF10</span>
+            </div>
+            <div class="rf-stat-box">
+                <span class="rf-stat-label">ENCRYPTION</span>
+                <span class="rf-stat-value" id="rf-encryption" style="color:var(--rf-green);">AES-CTR</span>
+            </div>
+            <div class="rf-stat-box">
+                <span class="rf-stat-label">LORA ID LOCAL</span>
+                <span class="rf-stat-value" id="rf-lora-id" style="color:var(--rf-blue); font-size:0.85rem;">—</span>
+            </div>
+        </div>
+        <canvas class="canvas-small" id="rf-spectrum-canvas"></canvas>
+        <div class="packet-log" id="rf-log-output">
+            <div class="packet-entry"><span class="packet-time">[SYS]</span> <span class="packet-type">RF</span> — Motor de producción listo.</div>
+        </div>
+    </section>
+
+    <!-- ── PANEL 16: Test Signals / Cross-device Relay ── -->
+    <section class="card rf-panel" id="panel-testsig" style="grid-column: span 2;">
+        <div class="card-header">
+            <h2><span class="status-indicator inactive" id="relay-status-ind"></span>⑯ TEST SIGNALS — CROSS-DEVICE RELAY</h2>
+            <span class="freq-badge sdr" id="relay-network">LIFELINE-001</span>
+        </div>
+        <div class="rf-grid" style="grid-template-columns: repeat(4, 1fr);">
+            <div class="rf-stat-box">
+                <span class="rf-stat-label">RELAY</span>
+                <span class="rf-stat-value" id="relay-status" style="color:var(--rf-blue); font-size:0.8rem;">INICIANDO…</span>
+            </div>
+            <div class="rf-stat-box">
+                <span class="rf-stat-label">FRAMES TX</span>
+                <span class="rf-stat-value" id="relay-tx" style="color:var(--rf-green);">0</span>
+            </div>
+            <div class="rf-stat-box">
+                <span class="rf-stat-label">FRAMES RX</span>
+                <span class="rf-stat-value" id="relay-rx" style="color:var(--rf-blue);">0</span>
+            </div>
+            <div class="rf-stat-box">
+                <span class="rf-stat-label">NODES VISIBLES</span>
+                <span class="rf-stat-value" id="relay-nodes" style="color:var(--rf-orange);">0</span>
+            </div>
+        </div>
+        <div class="btn-grid" style="margin-top:10px;">
+            <button class="btn btn-primary" id="btn-test-tx">📡 TX TELEMETRÍA LOCAL (BROADCAST)</button>
+            <button class="btn btn-action" id="btn-test-node">＋ INYECTAR NODO (DATOS REALES)</button>
+            <button class="btn btn-secondary" id="btn-test-clear">✖ LIMPIAR NODOS REMOTOS</button>
+        </div>
+        <div class="btn-grid" style="margin-top:10px;">
+            <button class="btn btn-secondary" id="btn-bind-radio">🔌 VINCULAR RADIO LORA (WEB SERIAL)</button>
+            <span class="freq-badge" id="radio-status" style="align-self:center; color:#f59e0b;">SIN RADIO FÍSICA</span>
+            <button class="btn btn-secondary" id="btn-bind-ble">❤ VINCULAR WEARABLE (BLE)</button>
+            <span class="freq-badge" id="ble-status" style="align-self:center; color:#f59e0b;">SIN BLE</span>
+        </div>
+        <div class="rf-grid" style="grid-template-columns: 1fr auto; margin-top:10px;">
+            <input id="test-peer-url" placeholder="Par manual (UDP broadcast no llega): http://192.168.0.5:8000" style="width:100%; background:#0f172a; color:#e2e8f0; border:1px solid #334155; border-radius:4px; padding:4px; font-family:var(--font-mono); font-size:0.7rem;">
+            <button class="btn btn-secondary" id="btn-test-addpeer">➕ AÑADIR PAR</button>
+        </div>
+        <div class="packet-log" id="relay-peers" style="max-height:110px; margin-top:8px;">
+            <div class="packet-entry"><span class="packet-time">[RELAY]</span> <span class="packet-type">SIN PARES</span> — en alerta, el servidor se anuncia por UDP broadcast a los dispositivos del mismo estado.</div>
+        </div>
+        <div class="rf-grid" style="grid-template-columns: 1fr; margin-top:10px;">
+            <div style="font-size:0.6rem;color:var(--text-sub);">「 INYECTAR NODO 」 transmite la trama real AES-CTR con las <b style="color:var(--text)">lecturas reales del dispositivo</b> (sin datos ficticios); cualquier par en VIGILANCE la materializa como nodo remoto por el relay cross-device.</div>
+        </div>
+        <div class="packet-log" id="relay-log">
+            <div class="packet-entry"><span class="packet-time">[RELAY]</span> <span class="packet-type">SEÑALES</span> — solo interconectan dispositivos en el mismo estado de alerta (VIGILANCE). Nodos remotos solo entran por ingest/relay real.</div>
+        </div>
+    </section>
+
+    <section class="card rf-panel" id="panel-barrido" style="grid-column: span 2;">
+        <h2><span class="status-indicator inactive" id="barrido-status-ind"></span>⑰ BARRIDO AVANZADO — RIESGO AMBIENTAL + DTN + ROL DINÁMICO</h2>
+
+        <div class="rf-grid" style="grid-template-columns: repeat(4, 1fr); gap:8px; margin-top:10px;">
+            <div class="rf-box" style="grid-column: span 2;">
+                <div class="rf-box-title">ATMOSFERA SUBTERRÁNEA (CO / O2)</div>
+                <div style="display:flex; gap:10px; margin-top:6px;">
+                    <div>CO <b id="atm-co">—</b> ppm</div>
+                    <div>O2 <b id="atm-o2">—</b> %</div>
+                </div>
+                <div style="margin-top:6px;"><b id="atm-level" style="color:#10b981;">SIN LECTURA</b></div>
+                <div id="atm-reason" style="font-size:0.6rem;color:var(--text-sub); margin-top:4px;">Sin módulo de gases vinculado (BLE GATT 0x181A).</div>
+                <div style="margin-top:8px; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                    <button class="btn btn-secondary" id="btn-bind-atm">🫁 VINCULAR GASES (BLE)</button>
+                    <span class="freq-badge" id="atm-status" style="color:#f59e0b;">SIN GASES</span>
+                </div>
+            </div>
+
+            <div class="rf-box" style="grid-column: span 2;">
+                <div class="rf-box-title">TÉRMICA DE PROXIMIDAD (IR · FIRMA 36–37 °C)</div>
+                <div style="display:flex; gap:10px; margin-top:6px;">
+                    <div>Firmas: <b id="th-count">0</b></div>
+                    <div>Píxeles: <b id="th-pixels">0</b></div>
+                </div>
+                <canvas id="thermal-canvas" width="128" height="96" style="width:100%; height:96px; background:#0a1220; border:1px solid #334155; border-radius:4px; margin-top:6px; image-rendering:pixelated;"></canvas>
+                <div style="margin-top:8px; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                    <button class="btn btn-secondary" id="btn-bind-serial">🔗 VINCULAR PUENTE DE CAMPO (UWB+IR+ORI)</button>
+                    <span class="freq-badge" id="fb-status" style="color:#64748b;">SIN PUENTE</span>
+                </div>
+                <div style="margin-top:8px; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                    <button class="btn btn-secondary" id="btn-bind-thermal">🌡 VINCULAR CÁMARA TÉRMICA (SERIAL)</button>
+                    <span class="freq-badge" id="th-status" style="color:#f59e0b;">SIN TÉRMICA</span>
+                </div>
+            </div>
+
+            <div class="rf-box">
+                <div class="rf-box-title">DTN — MULA DE DATOS (STORE-AND-FORWARD)</div>
+                <div style="display:flex; gap:10px; margin-top:6px;">
+                    <div>Almacenadas: <b id="dtn-stored">0</b></div>
+                    <div>Pendientes: <b id="dtn-pending">0</b></div>
+                </div>
+                <div style="font-size:0.6rem;color:var(--text-sub); margin-top:4px;">Balizas de víctimas cifradas en reposo (AES-128); viajan con el rescatista hasta un Gateway.</div>
+                <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">
+                    <button class="btn btn-secondary" id="btn-dtn-sync">🔁 SINC. DTN</button>
+                    <span class="freq-badge" id="dtn-status" style="color:#10b981;">STORE ON</span>
+                </div>
+            </div>
+
+            <div class="rf-box">
+                <div class="rf-box-title">ROL DINÁMICO + WAKE-UP RADIO</div>
+                <div style="margin-top:6px;">Rol: <b id="role-current">SCOUT</b> → <b id="role-suggest" style="color:#f59e0b;">SCOUT</b></div>
+                <div id="role-reason" style="font-size:0.6rem;color:var(--text-sub); margin-top:4px;">densidad normal.</div>
+                <div style="margin-top:6px;">Wake: <b id="wake-state">OFF</b> · activ.: <b id="wake-count">0</b></div>
+                <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">
+                    <button class="btn btn-secondary" id="btn-apply-role">🔄 APLICAR ROL</button>
+                    <button class="btn btn-secondary" id="btn-wake-prox">📡 PROXIMIDAD (WAKE)</button>
+                </div>
+                <div style="margin-top:8px; border-top:1px solid rgba(255,255,255,0.08); padding-top:8px;" class="rtc-mode-box">
+                    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                        <button class="btn btn-rtc-role" id="btn-rtc-role" style="font-size:0.62rem;">⤻ MODO: -</button>
+                        <span class="freq-badge" id="rtc-role-label" style="color:#64748b;">SIN MODO DE ENLACE</span>
+                    </div>
+                    <div id="rtc-role-hint" style="font-size:0.56rem;color:var(--text-sub);margin-top:4px;">
+                        Modo esclavo → ① CREAR OFERTA y ③ PEGAR RESPUESTA. Modo maestro → ② PEGAR OFERTA → RESPONDER.
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+</main>
+
+<footer>
+    <p>Project Lifeline Core (AMRF) · Producción v2.2 · Stack RF real (CBOR+LZ77+AES-CTR) + sensores del dispositivo + malla HTTP descentralizada (cada dispositivo corre su server y se descubren por UDP broadcast) · © 2026</p>
+</footer>
+
+<script src="/rf/aes128.js"></script>
+<script src="/rf/packet_encoder.js"></script>
+<script src="/rf/lora_mesh.js"></script>
+<script src="/rf/aprs_protocol.js"></script>
+<script src="/rf/sdr_receiver.js"></script>
+<script src="/rf/frequency_mgr.js"></script>
+<script src="/rf/radio_driver.js"></script>
+<script src="/rf/ble_bridge.js"></script>
+<script src="/rf/atmosphere_bridge.js"></script>
+<script src="/rf/field_bridge.js"></script>
+<script src="/rf/webrtc_link.js"></script>
+<script src="/rf/thermal_cam.js"></script>
+<script src="/rf/excavation_cam.js"></script>
+<script src="/rf/dtn_store.js"></script>
+<script src="/rf/wake_radio.js"></script>
+<script src="core_math.js"></script>
+<script src="device_sensors.js"></script>
+<script src="lifeline_engine.js"></script>
+<script src="relay_adapter.js"></script>
+<script src="app_integrated.js"></script>
+</body>
+</html>

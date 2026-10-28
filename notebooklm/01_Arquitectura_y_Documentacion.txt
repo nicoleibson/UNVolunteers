@@ -1,0 +1,273 @@
+================================================================================
+PROJECT LIFELINE CORE — DOCUMENTACIÓN COMPLETA DE ARQUITECTURA
+Documento consolidado para NotebookLM
+================================================================================
+
+SECCIÓN 1: VISIÓN GENERAL DEL PROYECTO
+=======================================
+
+Project Lifeline Core es un sistema de simulación de comunicaciones de
+emergencia diseñado para Voluntarios de las Naciones Unidas (UNV) que operan
+en escenarios de respuesta a desastres donde la infraestructura normal
+(torres celulares, internet) ha sido destruida o está fuera de servicio.
+
+El proyecto tiene dos componentes principales:
+
+1. MÓDULO DE RADIO RF (carpeta radio/)
+   - Implementa una pila completa de comunicaciones por radiofrecuencia
+   - Incluye: LoRa mesh, APRS, SDR, gestión de frecuencias, codificación de paquetes
+   - Todo en JavaScript, como simulación/referencia
+
+2. SIMULADOR VISUAL AMRF (carpeta simulation/simulation/)
+   - Aplicación web interactiva para entrenamiento y planificación
+   - Dos versiones: base (v1.2) e integrada con RF (v2.0)
+   - Dashboard con canvas HTML5, visualización en tiempo real
+
+ARQUITECTURA DE 3 CAPAS:
+- Capa Zona de Desastre: BLE + LoRa + APRS entre nodos
+- Capa Gateway/Scout: LoRa Gateway + APRS Igate + SDR Receiver
+- Capa Centro de Comando: Satélite + HF Radio + Internet Backup
+
+
+SECCIÓN 2: DOCUMENTACIÓN DEL MÓDULO RF
+=======================================
+
+================================================================================
+    PROJECT LIFELINE CORE — RADIO FREQUENCY COMMUNICATION MODULE
+    UN Volunteers · Disaster Response · RF Communication v1.0
+================================================================================
+
+This module implements radio frequency communication for disaster scenarios
+when normal infrastructure (cell towers, internet) is down.
+
+================================================================================
+                         ARCHITECTURE OVERVIEW
+================================================================================
+
+                    ┌─────────────────────────────────────────────┐
+                    │           DISASTER ZONE LAYER               │
+                    │  ┌─────────┐  ┌─────────┐  ┌─────────┐    │
+                    │  │  Node A │  │  Node B │  │  Node C │    │
+                    │  │ (BLE)   │←→│ (LoRa)  │←→│ (APRS)  │    │
+                    │  └────┬────┘  └────┬────┘  └────┬────┘    │
+                    │       │           │           │           │
+                    └───────┼───────────┼───────────┼───────────┘
+                            │           │           │
+                    ┌───────▼───────────▼───────────▼───────────┐
+                    │         GATEWAY / SCOUT LAYER              │
+                    │  ┌─────────┐  ┌─────────┐  ┌─────────┐    │
+                    │  │  LoRa   │  │  APRS   │  │  SDR    │    │
+                    │  │ Gateway │  │  Igate  │  │ Receiver│    │
+                    │  └────┬────┘  └────┬────┘  └────┬────┘    │
+                    └───────┼───────────┼───────────┼───────────┘
+                            │           │           │
+                    ┌───────▼───────────▼───────────▼───────────┐
+                    │         COMMAND CENTER LAYER               │
+                    │  ┌─────────┐  ┌─────────┐  ┌─────────┐    │
+                    │  │ Satellite│ │  HF     │  │ Internet │    │
+                    │  │ (Starlink)│ │ Radio  │  │ Backup  │    │
+                    │  └─────────┘  └─────────┘  └─────────┘    │
+                    └─────────────────────────────────────────────┘
+
+================================================================================
+                         COMMUNICATION LAYERS
+================================================================================
+
+LAYER 1: BLE MESH (0-100m)
+- Device-to-device communication
+- Low power, short range
+- For trapped victims nearby
+
+LAYER 2: LORA MESH (100m-15km)
+- Node-to-gateway communication
+- Long range, low power
+- For deep rubble penetration
+
+LAYER 3: APRS/VHF (1-50km)
+- GPS tracking and messaging
+- Real-time position reporting
+- For rescue team coordination
+
+LAYER 4: HF RADIO (50-1000km)
+- Long range command & control
+- Satellite backup
+- For regional coordination
+
+================================================================================
+                         FILES IN THIS MODULE
+================================================================================
+
+1. lora_mesh.js      - LoRa mesh network simulation
+2. aprs_protocol.js  - APRS packet radio implementation
+3. sdr_receiver.js   - Software Defined Radio concepts
+4. frequency_mgr.js  - Frequency management and allocation
+5. packet_encoder.js - RF packet encoding/decoding
+
+================================================================================
+                         FREQUENCY BANDS USED
+================================================================================
+
+BAND           FREQUENCY        PURPOSE           RANGE
+─────────────────────────────────────────────────────────────
+ISM 433 MHz    433.05-434.79    LoRa Europe       2-15 km
+ISM 868 MHz    868.0-868.6      LoRa Europe       2-15 km
+ISM 915 MHz    902-928          LoRa Americas     2-15 km
+VHF 2m         144.0-148.0      APRS/Amateur      1-50 km
+VHF 70cm       420-450          Amateur           1-30 km
+HF             3-30 MHz         Long range        50-1000 km
+UHF            406-406.1        ELT/EPIRB         Satellite
+
+================================================================================
+                         LEGAL NOTES
+================================================================================
+
+- ISM bands (433/868/915 MHz): License-free for low power
+- VHF/UHF Amateur: Requires amateur radio license
+- HF: Requires license for transmit
+- Emergency use: May have exceptions under disaster declarations
+- ELT/EPIRB: Licensed for emergency only (406 MHz)
+
+================================================================================
+                         NEXT STEPS
+================================================================================
+
+1. Implement LoRa mesh simulation
+2. Add APRS protocol support
+3. Create frequency manager
+4. Build packet encoder/decoder
+5. Integrate with existing AMRF simulation
+
+================================================================================
+
+
+SECCIÓN 3: DOCUMENTACIÓN DEL SIMULADOR AMRF v2.0
+=================================================
+
+╔══════════════════════════════════════════════════════════════════╗
+║   PROJECT LIFELINE CORE — AMRF v2.0 INTEGRATED RF SYSTEM       ║
+║   Integrated Simulation with LoRa + APRS + SDR                 ║
+╚══════════════════════════════════════════════════════════════════╝
+
+WHAT'S NEW IN v2.0:
+═══════════════════
+
+1. LORA MESH NETWORK (Panel 11)
+   - Frequency: US915 (915 MHz ISM band)
+   - Features: Mesh routing, multi-hop relay, adaptive spreading factor
+   - Real-time waveform visualization
+   - RSSI/SNR monitoring
+   - Automatic node discovery and beaconing
+
+2. APRS PROTOCOL (Panel 12)
+   - Frequency: 144.390 MHz (VHF 2m Amateur)
+   - Features: Position tracking, message relay, digipeater
+   - Support for APRS objects and IS gateway
+   - Real-time packet logging
+
+3. SDR RECEIVER (Panel 13)
+   - Frequency: 433 MHz ISM band (configurable)
+   - Features: Signal detection, spectrum analysis
+   - Waterfall display visualization
+   - Multi-signal simultaneous decoding
+
+4. FREQUENCY ALLOCATION (Panel 14)
+   - Visual display of all active frequency bands
+   - Status indicators for each band
+   - ISM 915 (LoRa), VHF 2m (APRS), ISM 433 (SDR), HF 7MHz (planned)
+
+FILES:
+══════
+- index_integrated.html — New HTML with RF panels
+- app_integrated.js     — Updated JS with RF module integration
+- styles.css            — Existing styles (unchanged)
+- radio/                — RF module source code
+  - lora_mesh.js       — LoRa mesh network implementation
+  - aprs_protocol.js   — APRS packet radio protocol
+  - sdr_receiver.js    — SDR receiver implementation
+  - frequency_mgr.js   — Frequency allocation manager
+  - packet_encoder.js  — RF packet encoder/decoder
+
+HOW TO RUN:
+═══════════
+1. Navigate to the simulation directory:
+   cd /storage/emulated/0/Documents/UNVolunteers/simulation/simulation
+
+2. Start the HTTP server:
+   node server.js
+
+3. Open browser to:
+   http://localhost:8000/index_integrated.html
+
+4. Click "⚡ TRIGGER P-WAVE" to activate all RF systems
+
+SIMULATION FLOW:
+════════════════
+1. DORMANT → All RF systems offline
+2. TRIGGER P-WAVE → Cell Broadcast received
+3. RF Systems Init:
+   - LoRa mesh network initialized with 3 nodes
+   - APRS tracker activated with position beacons
+   - SDR receiver starts scanning for signals
+4. Active Monitoring:
+   - LoRa: Periodic beacons every 5s
+   - APRS: Position updates every 30s
+   - SDR: Continuous signal scanning
+5. Emergency:
+   - SOS button transmits on all frequencies
+   - Multi-protocol redundant messaging
+
+RF MODULES STATUS:
+═════════════════
+[✓] LoRa Mesh — Active (915 MHz)
+[✓] APRS — Active (144.390 MHz)
+[✓] SDR — Active (433 MHz scanning)
+[ ] HF Backup — Planned (7.030 MHz)
+
+For detailed RF architecture, see: radio/README_RF.txt
+
+© 2026 Project Lifeline Core — UN Volunteers
+
+
+SECCIÓN 4: RESUMEN DE ARQUITECTURA GENERAL
+===========================================
+
+Los módulos de radio/ NO se importan directamente como módulos ES en el
+simulador. Su lógica está re-implementada/embebida dentro de app_integrated.js.
+Los archivos en radio/ funcionan como módulos de referencia del stack RF.
+
+Flujo de datos del sistema:
+  SDR Receiver → Packet Encoder → APRS Protocol / LoRa Mesh
+                      ↑                     ↑
+              Frequency Manager ────────────┘
+
+Capas de comunicación:
+  Layer 1: BLE Mesh (0-100m) — Comunicación dispositivo a dispositivo
+  Layer 2: LoRa Mesh (100m-15km) — Largo alcance, bajo consumo
+  Layer 3: APRS/VHF (1-50km) — Tracking GPS y mensajería
+  Layer 4: HF Radio (50-1000km) — Comando y control de largo alcance
+
+
+SECCIÓN 5: TABLA DE ARCHIVOS DEL PROYECTO
+==========================================
+
+ARCHIVO                              TAMAÑO    PROPÓSITO
+─────────────────────────────────────────────────────────────────────────
+radio/README_RF.txt                  6.2 KB    Documentación del módulo RF
+radio/frequency_mgr.js               11.4 KB   Gestión de frecuencias y asignación
+radio/packet_encoder.js              12.4 KB   Codificación/decodificación de paquetes
+radio/aprs_protocol.js               14.2 KB   Protocolo APRS sobre AX.25
+radio/lora_mesh.js                   17.2 KB   Red mallada LoRa
+radio/sdr_receiver.js                13.8 KB   Receptor SDR con DSP
+simulation/simulation/README_v2.txt   3.2 KB   Documentación del simulador v2.0
+simulation/simulation/server.js       1.4 KB   Servidor HTTP Node.js
+simulation/simulation/index.html     24.8 KB   HTML del simulador base (v1.2)
+simulation/simulation/app.js         51.7 KB   Motor de simulación base (v1.2)
+simulation/simulation/styles.css     27.8 KB   Sistema de diseño CSS
+simulation/simulation/index_integrated.html  32.3 KB  HTML del simulador integrado (v2.0)
+simulation/simulation/app_integrated.js      80.6 KB  Motor integrado con RF (v2.0)
+
+TOTAL: ~297 KB de código fuente
+
+================================================================================
+FIN DEL DOCUMENTO DE ARQUITECTURA
+================================================================================

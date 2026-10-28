@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Project Lifeline Core — AMRF Live Simulation</title>
+    <meta name="description" content="Interactive simulation of the Android Mesh-based Rescue Framework (AMRF). Visualizes BLE mesh topology, START triage, ECIES encryption and barometric depth estimation in real time.">
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<!-- Background ambient orbs -->
+<div class="glow-container">
+    <div class="glow-orb orb-1"></div>
+    <div class="glow-orb orb-2"></div>
+    <div class="glow-orb orb-3"></div>
+</div>
+
+<!-- ═══════════════ HEADER ═══════════════ -->
+<header>
+    <div class="header-logo">
+        <span class="pulse-dot" id="system-pulse"></span>
+        <div>
+            <h1>PROJECT LIFELINE CORE</h1>
+            <p class="header-sub">Android Mesh-based Rescue Framework · AMRF v1.2</p>
+        </div>
+        <span class="badge" id="system-state-badge">DORMANT</span>
+    </div>
+    <div class="header-stats">
+        <div class="stat-pill">
+            <span class="label">VIGILANCE TIMER</span>
+            <span id="vigilance-timer" class="mono">--:--</span>
+        </div>
+        <div class="stat-pill">
+            <span class="label">NODES ACTIVE</span>
+            <span id="stat-nodes" class="mono">0</span>
+        </div>
+        <div class="stat-pill">
+            <span class="label">PHY MODE</span>
+            <span id="stat-phy" class="mono">DORMANT</span>
+        </div>
+        <div class="stat-pill">
+            <span class="label">PACKETS / MIN</span>
+            <span id="stat-ppm" class="mono">0</span>
+        </div>
+    </div>
+</header>
+
+<!-- ═══════════════ MAIN GRID ═══════════════ -->
+<main class="dashboard-grid">
+
+    <!-- ── PANEL 1: Field Visualization Canvas ── -->
+    <section class="card viz-card" id="panel-viz">
+        <div class="card-header">
+            <h2>① FIELD DEPLOYMENT VISUALIZATION</h2>
+            <div class="indicator" id="radio-mode-badge">PHY: DORMANT</div>
+        </div>
+        <div class="viz-container">
+            <canvas id="mesh-canvas"></canvas>
+            <div class="floor-overlay">
+                <div class="floor-line surface-line"><span>Surface — Scout / UAV</span></div>
+                <div class="floor-line floor-1"><span>Floor −1 (Rubble)</span></div>
+                <div class="floor-line floor-2"><span>Floor −2 (Basement)</span></div>
+                <div class="floor-line floor-3"><span>Floor −3 (Deep Vault)</span></div>
+            </div>
+            <!-- Crypto lock overlay shown on packet intercept -->
+            <div class="crypto-toast" id="crypto-toast">
+                <span class="crypto-icon">🔒</span>
+                <span id="crypto-toast-text">Encrypted packet captured</span>
+            </div>
+        </div>
+        <div class="viz-controls">
+            <button class="btn btn-danger" id="btn-trigger-disaster">⚡ TRIGGER P-WAVE / CELL BROADCAST</button>
+            <button class="btn btn-secondary" id="btn-reset">↺ RESET SYSTEM</button>
+            <label class="switch-label">
+                <span>Auto-drain battery</span>
+                <label class="switch">
+                    <input type="checkbox" id="control-auto-drain">
+                    <span class="toggle-slider"></span>
+                </label>
+            </label>
+        </div>
+    </section>
+
+    <!-- ── PANEL 2: Victim Device Controls ── -->
+    <section class="card controls-card" id="panel-controls">
+        <div class="card-header">
+            <h2>② VICTIM DEVICE — HARDWARE CONTROLS</h2>
+        </div>
+        <div class="control-sections">
+
+            <!-- Power -->
+            <div class="control-group">
+                <h3>🔋 Power &amp; Duty Cycle</h3>
+                <div class="control-row">
+                    <label for="control-battery">Battery: <span id="val-battery" class="mono accent">100%</span></label>
+                    <div class="slider-wrap">
+                        <input type="range" id="control-battery" min="1" max="100" value="100" class="slider">
+                        <div class="battery-bar" id="battery-bar"></div>
+                    </div>
+                </div>
+                <div class="control-row toggle-row">
+                    <label>Multi-hop relay (simulate deep node):</label>
+                    <label class="switch">
+                        <input type="checkbox" id="control-relay-active">
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+            </div>
+
+            <!-- Biometrics -->
+            <div class="control-group">
+                <h3>❤️ Wear OS Biometrics</h3>
+                <div class="control-row toggle-row">
+                    <label>Smartwatch on-body (PPG):</label>
+                    <label class="switch">
+                        <input type="checkbox" id="control-wearable-body" checked>
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+                <div class="control-row">
+                    <label for="control-bpm">Heart Rate: <span id="val-bpm" class="mono accent">72 BPM</span></label>
+                    <input type="range" id="control-bpm" min="30" max="180" value="72" class="slider">
+                </div>
+                <div class="control-row">
+                    <label for="control-spo2">SpO₂: <span id="val-spo2" class="mono accent">98%</span></label>
+                    <input type="range" id="control-spo2" min="65" max="100" value="98" class="slider">
+                </div>
+            </div>
+
+            <!-- Pressure & Depth -->
+            <div class="control-group">
+                <h3>📡 Barometric Altimetry</h3>
+                <div class="control-row">
+                    <label for="control-pressure">Trapped Pressure: <span id="val-pressure" class="mono accent">1013.25 hPa</span></label>
+                    <input type="range" id="control-pressure" min="95000" max="105000" value="101325" step="10" class="slider">
+                </div>
+                <div class="depth-result-box">
+                    <span class="depth-label">Estimated depth (Δh)</span>
+                    <span class="depth-value" id="depth-display">0.00 m</span>
+                </div>
+                <div class="math-formula">Δh = (R·T / g·M) · ln(P<sub>trapped</sub> / P<sub>start</sub>)</div>
+                <div class="info-note">P<sub>start</sub> = 1013.25 hPa locked at P-wave onset.</div>
+            </div>
+
+            <!-- Manual Triggers -->
+            <div class="control-group">
+                <h3>🆘 Manual Distress Actions</h3>
+                <div class="btn-grid">
+                    <button class="btn btn-action" id="btn-trigger-tap">TAP SOS (3-TAP PATTERN)</button>
+                    <button class="btn btn-action" id="btn-touch-interaction">SIMULATE SCREEN TOUCH</button>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ── PANEL 3: Algorithmic Telemetry ── -->
+    <section class="card telemetry-card" id="panel-telemetry">
+        <div class="card-header">
+            <h2>③ CORE ALGORITHMIC TELEMETRY</h2>
+        </div>
+        <div class="telemetry-body">
+
+            <!-- IPU Bar -->
+            <div class="metric-container">
+                <div class="metric-header">
+                    <span>User Presence Index (IPU)</span>
+                    <span id="ipu-value" class="mono">0.00</span>
+                </div>
+                <div class="progress-bar-bg">
+                    <div class="progress-bar-fill" id="ipu-fill"></div>
+                </div>
+                <div class="triage-status-display">
+                    <span>START Classification:</span>
+                    <span class="triage-badge triage-green" id="triage-badge-value">GREEN (STABLE)</span>
+                </div>
+            </div>
+
+            <!-- Radio Status Grid -->
+            <div class="status-grid">
+                <div class="status-item">
+                    <span class="label">RADIO STATE</span>
+                    <span class="value" id="status-radio">DORMANT</span>
+                </div>
+                <div class="status-item">
+                    <span class="label">ADV INTERVAL</span>
+                    <span class="value" id="status-interval">N/A</span>
+                </div>
+                <div class="status-item">
+                    <span class="label">TX POWER</span>
+                    <span class="value" id="status-tx-power">N/A</span>
+                </div>
+                <div class="status-item">
+                    <span class="label">MULTI-HOP</span>
+                    <span class="value" id="status-relay">INACTIVE</span>
+                </div>
+            </div>
+
+            <!-- Live Log -->
+            <div class="console-box">
+                <div class="console-header">
+                    <span>AOSP EmergencyLog Subsystem</span>
+                    <span class="live-dot"></span>
+                </div>
+                <div class="console-lines" id="log-output">
+                    <div class="log-line text-muted">[System] Awaiting critical event broadcast.</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ── PANEL 4: Scout Radar (E2E Decrypted View) ── -->
+    <section class="card scout-radar-card" id="panel-scout">
+        <div class="card-header">
+            <h2>④ SCOUT RECEIVER — DECRYPTED TRIAGE TABLE</h2>
+            <div class="scanner-wrap">
+                <div class="pulse-dot" id="scanner-indicator"></div>
+                <span class="mono" style="font-size:0.65rem; color:#94a3b8;">BLE SCAN</span>
+            </div>
+        </div>
+        <div class="radar-body">
+            <div class="radar-scan-box">
+                <table class="radar-table" id="radar-table">
+                    <thead>
+                        <tr>
+                            <th>NODE ID</th>
+                            <th>TRIAGE</th>
+                            <th>DEPTH</th>
+                            <th>GPS</th>
+                            <th>VITALS</th>
+                            <th>RSSI</th>
+                            <th>BATT</th>
+                            <th>ACTION</th>
+                        </tr>
+                    </thead>
+                    <tbody id="radar-victim-list">
+                        <tr>
+                            <td colspan="8" class="text-center text-muted">
+                                Awaiting beacon detection. Trigger a P-Wave to start.
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="radar-footer">
+                <div class="radar-legend">
+                    <span class="triage-badge triage-red" style="font-size:0.6rem;">RED</span>
+                    <span class="triage-badge triage-yellow" style="font-size:0.6rem;">YELLOW</span>
+                    <span class="triage-badge triage-green" style="font-size:0.6rem;">GREEN</span>
+                    <span class="triage-badge triage-black" style="font-size:0.6rem;">BLACK</span>
+                    <span style="font-size:0.65rem; color:#8b5cf6; margin-left:8px;">◈ RELAYED</span>
+                </div>
+                <button class="btn btn-primary" id="btn-ping-all" disabled>📡 PING ALL NODES</button>
+            </div>
+        </div>
+    </section>
+
+    <!-- ── PANEL 5: ECIES Packet Visualizer ── -->
+    <section class="card ecies-card" id="panel-ecies">
+        <div class="card-header">
+            <h2>⑤ ECIES PACKET — WIRE FORMAT VISUALIZER</h2>
+            <div class="indicator" id="ecies-status">IDLE</div>
+        </div>
+        <div class="ecies-body">
+            <div class="wire-format">
+                <div class="wire-segment" id="seg-ephpub">
+                    <div class="wire-label">EPH. PUB KEY</div>
+                    <div class="wire-bytes" id="bytes-ephpub">-- -- -- --</div>
+                    <div class="wire-size">32 bytes · X25519</div>
+                </div>
+                <div class="wire-sep">+</div>
+                <div class="wire-segment" id="seg-iv">
+                    <div class="wire-label">GCM IV / NONCE</div>
+                    <div class="wire-bytes" id="bytes-iv">-- -- -- --</div>
+                    <div class="wire-size">12 bytes · random</div>
+                </div>
+                <div class="wire-sep">+</div>
+                <div class="wire-segment" id="seg-cipher">
+                    <div class="wire-label">CIPHERTEXT</div>
+                    <div class="wire-bytes" id="bytes-cipher">-- -- -- --</div>
+                    <div class="wire-size" id="size-cipher">N bytes · AES-GCM-256</div>
+                </div>
+                <div class="wire-sep">+</div>
+                <div class="wire-segment" id="seg-tag">
+                    <div class="wire-label">AUTH TAG</div>
+                    <div class="wire-bytes" id="bytes-tag">-- -- -- --</div>
+                    <div class="wire-size">16 bytes · GCM-128</div>
+                </div>
+            </div>
+
+            <!-- Arrow and decrypted result -->
+            <div class="ecies-arrow">
+                <div class="arrow-line"></div>
+                <span class="arrow-label">Scout ECDH → HKDF → AES-GCM decrypt</span>
+                <div class="arrow-head">▼</div>
+            </div>
+
+            <div class="decrypted-result" id="decrypted-panel">
+                <div class="decrypt-row">
+                    <span class="decrypt-key">🌐 GPS</span>
+                    <span class="decrypt-val" id="dec-gps">—</span>
+                </div>
+                <div class="decrypt-row">
+                    <span class="decrypt-key">❤️ BPM</span>
+                    <span class="decrypt-val" id="dec-bpm">—</span>
+                </div>
+                <div class="decrypt-row">
+                    <span class="decrypt-key">🫁 SpO₂</span>
+                    <span class="decrypt-val" id="dec-spo2">—</span>
+                </div>
+                <div class="decrypt-row">
+                    <span class="decrypt-key">📏 Depth</span>
+                    <span class="decrypt-val" id="dec-depth">—</span>
+                </div>
+                <div class="decrypt-row">
+                    <span class="decrypt-key">🚨 START</span>
+                    <span class="decrypt-val" id="dec-triage"><span class="triage-badge triage-green">—</span></span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ── PANEL 6: Deployment Specs ── -->
+    <section class="card deployment-card" id="panel-deploy">
+        <div class="card-header">
+            <h2>⑥ DEPLOYMENT &amp; ECOSYSTEM STRATEGY</h2>
+        </div>
+        <div class="deployment-body">
+            <div class="tab-buttons">
+                <button class="tab-btn active" data-tab="tab-apex">APEX Mainline</button>
+                <button class="tab-btn" data-tab="tab-sidecar">Play Services</button>
+                <button class="tab-btn" data-tab="tab-cdd">CTS / CDD</button>
+            </div>
+            <div class="tab-content" id="tab-apex">
+                <h3>Modular Project Mainline Update</h3>
+                <p>Packaged as a Play System Update under <code>com.google.android.connectivity.apex</code>.</p>
+                <ul>
+                    <li><strong>Coverage:</strong> Android 10+ — 85%+ of global active devices</li>
+                    <li><strong>Deployment:</strong> Silent OTA, no user interaction required</li>
+                    <li><strong>Permissions:</strong> Signature-level <code>MANAGE_EMERGENCY_BROADCAST</code></li>
+                </ul>
+            </div>
+            <div class="tab-content hidden" id="tab-sidecar">
+                <h3>Google Play Services Companion APK</h3>
+                <p>Legacy fallback for Android 6.0–9.0 (API 23–28).</p>
+                <ul>
+                    <li><strong>Role:</strong> Passive Scout relay — scan-only, no active beaconing</li>
+                    <li><strong>Function:</strong> Caches encrypted BLE payloads, forwards on network recovery</li>
+                </ul>
+            </div>
+            <div class="tab-content hidden" id="tab-cdd">
+                <h3>Android Compatibility Definitions</h3>
+                <p>Legal and architectural rules for next-generation devices.</p>
+                <ul>
+                    <li><strong>CDD §7.4.3:</strong> BLE Long Range and UWB hardware must pass emergency beacon CTS</li>
+                    <li><strong>CTS bound:</strong> Beacon launch within 500 ms of Cell Broadcast interrupt</li>
+                </ul>
+            </div>
+        </div>
+    </section>
+
+    <!-- ── PANEL 7: Geospatial Map ── -->
+    <section class="card map-card" id="panel-map">
+        <div class="card-header">
+            <h2>⑦ TOP-DOWN GEOSPATIAL RADAR</h2>
+            <div class="indicator" style="color:var(--primary); border-color:var(--primary)">GPS SYNCHED</div>
+        </div>
+        <div class="map-body" style="height:250px; position:relative; background:rgba(0,0,0,0.4); border-top:1px solid var(--border)">
+            <canvas id="topdown-canvas" style="width:100%; height:100%; display:block;"></canvas>
+        </div>
+    </section>
+
+    <!-- ── PANEL 8: Tactical Intercom ── -->
+    <section class="card intercom-card" id="panel-intercom">
+        <div class="card-header">
+            <h2>⑧ TACTICAL INTERCOM (TTS)</h2>
+        </div>
+        <div class="intercom-body" style="display:flex; flex-direction:column; height:250px; padding:12px; gap:10px;">
+            <div class="chat-log" id="intercom-log" style="flex:1; overflow-y:auto; background:rgba(0,0,0,0.2); border:1px solid var(--border); border-radius:6px; padding:8px; display:flex; flex-direction:column; gap:6px; font-family:var(--font-mono); font-size:0.65rem;">
+                <div style="color:var(--muted)">[SYS] Uplink module offline. Awaiting distress signal.</div>
+            </div>
+            <div class="chat-controls" style="display:flex; flex-direction:column; gap:6px;">
+                <select id="intercom-target-select" class="dropdown" style="background:rgba(0,0,0,0.5); color:var(--text); border:1px solid var(--border); padding:6px; border-radius:4px; font-family:var(--font-mono); font-size:0.65rem;" disabled>
+                    <option value="ALL">BROADCAST TO ALL NODES</option>
+                </select>
+                <div style="display:flex; gap:6px;">
+                    <input type="text" id="intercom-input" placeholder="Type text-to-speech message..." style="flex:1; background:rgba(0,0,0,0.5); border:1px solid var(--border); color:var(--text); padding:6px 10px; border-radius:4px; font-family:var(--font-sans); font-size:0.75rem;" disabled>
+                    <button class="btn btn-action" id="btn-intercom-send" disabled>SEND</button>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ── PANEL 9: Live Vitals Timeline ── -->
+    <section class="card vitals-card" id="panel-vitals">
+        <div class="card-header">
+            <h2>⑨ LIVE VITALS TIMELINE</h2>
+            <div class="indicator" id="vitals-status" style="color:var(--danger); border-color:var(--danger)">RECORDING</div>
+        </div>
+        <div class="vitals-body" style="padding:16px; display:flex; flex-direction:column; gap:12px;">
+            <div style="display:flex; gap:16px; flex-wrap:wrap;">
+                <div class="vitals-stat-box">
+                    <span class="vitals-stat-label">❤️ BPM TREND</span>
+                    <span class="vitals-stat-value" id="vitals-bpm-trend">—</span>
+                </div>
+                <div class="vitals-stat-box">
+                    <span class="vitals-stat-label">🫁 SpO₂ TREND</span>
+                    <span class="vitals-stat-value" id="vitals-spo2-trend">—</span>
+                </div>
+                <div class="vitals-stat-box">
+                    <span class="vitals-stat-label">⏱️ TIME TRAPPED</span>
+                    <span class="vitals-stat-value" id="vitals-time-trapped">00:00:00</span>
+                </div>
+                <div class="vitals-stat-box">
+                    <span class="vitals-stat-label">🔋 EST. REMAINING</span>
+                    <span class="vitals-stat-value" id="vitals-battery-eta">—</span>
+                </div>
+            </div>
+            <div style="position:relative; height:130px; background:rgba(0,0,0,0.25); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+                <canvas id="vitals-chart" style="width:100%; height:100%; display:block;"></canvas>
+            </div>
+            <div style="display:flex; gap:12px; font-size:0.6rem; font-family:var(--font-mono); color:var(--text-sub);">
+                <span style="color:#ef4444;">● BPM</span>
+                <span style="color:#3b82f6;">● SpO₂</span>
+                <span style="color:#f59e0b;">● Battery %</span>
+                <span style="margin-left:auto; color:var(--muted);">60s rolling window</span>
+            </div>
+        </div>
+    </section>
+
+    <!-- ── PANEL 10: Environmental & Structural Intelligence ── -->
+    <section class="card environ-card" id="panel-environ">
+        <div class="card-header">
+            <h2>⑩ ENVIRONMENTAL INTEL</h2>
+        </div>
+        <div class="environ-body" style="padding:16px; display:flex; flex-direction:column; gap:14px;">
+            <div class="env-sensor-grid">
+                <div class="env-sensor-item">
+                    <span class="env-icon">🌡️</span>
+                    <span class="env-label">TEMPERATURE</span>
+                    <span class="env-value" id="env-temp">—</span>
+                </div>
+                <div class="env-sensor-item">
+                    <span class="env-icon">💡</span>
+                    <span class="env-label">LIGHT (LUX)</span>
+                    <span class="env-value" id="env-light">—</span>
+                </div>
+                <div class="env-sensor-item">
+                    <span class="env-icon">🎤</span>
+                    <span class="env-label">MIC LEVEL</span>
+                    <span class="env-value" id="env-mic">—</span>
+                </div>
+                <div class="env-sensor-item">
+                    <span class="env-icon">📐</span>
+                    <span class="env-label">TILT (°)</span>
+                    <span class="env-value" id="env-tilt">—</span>
+                </div>
+            </div>
+            <div style="border-top:1px solid var(--border); padding-top:12px;">
+                <div style="font-size:0.6rem; font-family:var(--font-mono); color:var(--text-sub); letter-spacing:0.08em; text-transform:uppercase; margin-bottom:8px;">STRUCTURAL COLLAPSE PROFILE</div>
+                <div style="display:flex; gap:8px; align-items:center;">
+                    <div class="collapse-type-badge" id="collapse-type">UNKNOWN</div>
+                    <span style="font-size:0.65rem; color:var(--text-sub);" id="collapse-desc">Awaiting accelerometer data...</span>
+                </div>
+            </div>
+            <div style="border-top:1px solid var(--border); padding-top:12px;">
+                <div style="font-size:0.6rem; font-family:var(--font-mono); color:var(--text-sub); letter-spacing:0.08em; text-transform:uppercase; margin-bottom:8px;">AIR POCKET ESTIMATION</div>
+                <div style="display:flex; gap:16px; align-items:center;">
+                    <div class="progress-bar-bg" style="flex:1; height:8px;">
+                        <div class="progress-bar-fill" id="air-pocket-fill" style="width:0%; background:linear-gradient(to right, #ef4444, #f59e0b, #10b981);"></div>
+                    </div>
+                    <span style="font-family:var(--font-mono); font-size:0.75rem; color:var(--primary); font-weight:600;" id="air-pocket-val">—</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+</main>
+
+<footer>
+    <p>Project Lifeline Core (AMRF) · Interactive Simulation v1.2 · Advanced Architecture Proposal · © 2026</p>
+</footer>
+
+<script src="core_math.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,39 @@
+{
+    "dispositivo": "Xiaomi Redmi Note 8 (ginkgo)",
+    "os": "Android 15 (Termux Environment)",
+    "timestamp": "2026-08-03T11:12:11.404Z",
+    "modulo_rf_activo": "LORA_US915",
+    "sensores": {
+        "gps": {
+            "latitude": -34.7825326,
+            "longitude": -58.3658074,
+            "altitude": 0,
+            "accuracy": 400,
+            "vertical_accuracy": 0,
+            "bearing": 0,
+            "speed": 0,
+            "elapsedMs": 5160,
+            "provider": "network"
+        },
+        "entorno": {
+            "BMI160_ACCELEROMETER Accelerometer Non-wakeup": {
+                "values": [
+                    0.30299118161201477,
+                    -0.6370890140533447,
+                    9.531210899353027
+                ]
+            },
+            "stk_stk3x3x Ambient Light Sensor Wakeup": {
+                "values": [
+                    137.97000122070312
+                ]
+            }
+        }
+    },
+    "trama_aprs_generada": "!34.7825S/58.3658W[PNUD TEST - REDMI NOTE 8",
+    "estimacion_profundidad": {
+        "presion_referencia_hpa": 1013.25,
+        "presion_actual_hpa": 1013.25,
+        "profundidad_estimada_metros": 0
+    }
+}

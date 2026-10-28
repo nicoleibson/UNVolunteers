@@ -1,0 +1,29 @@
+# ── Secretos y configuración local ─────────────────────────────
+# Copia .env.example → .env con tus valores reales. Nunca subas
+# estos archivos: contienen claves/tokens de operación.
+.env
+.env.local
+.env.*.local
+
+# ── Dependencias / build ───────────────────────────────────────
+node_modules/
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ── Entorno de desarrollo ──────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.log
+# Registro de sesiones locales de coordinación (contienen capturas
+# de datos de sensores y configuraciones de prueba).
+/session-ses_*.md
+
+# ── Producción / despliegue ────────────────────────────────────
+# La base de datos / estado acumulado en el gateway no va al repo.
+*.db
+*.sqlite
+
+# ── Entorno (si se usa la generación de claves local) ──────────
+keys/
+*.pem

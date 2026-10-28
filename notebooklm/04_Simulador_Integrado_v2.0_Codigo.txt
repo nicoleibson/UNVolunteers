@@ -1,0 +1,2673 @@
+================================================================================
+PROJECT LIFELINE CORE — CÓDIGO FUENTE DEL SIMULADOR AMRF v2.0 (INTEGRADO CON RF)
+Documento consolidado para NotebookLM
+================================================================================
+
+Este documento contiene el código fuente completo de la versión integrada
+del simulador AMRF que combina el motor base con los módulos de radio RF.
+Incluye 14 paneles (10 base + 4 RF: LoRa Mesh, APRS Tracking, SDR Receiver,
+Frequency Allocation) y simulación completa de comunicaciones multi-protocolo.
+
+
+================================================================================
+ARCHIVO 1: index_integrated.html
+Estructura HTML5 extendida con 14 paneles. Agrega paneles de LoRa Mesh (915 MHz),
+APRS Tracking (144.390 MHz), SDR Receiver (433 MHz), y Frequency Allocation
+con canvas para espectro y forma de onda.
+================================================================================
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Project Lifeline Core — AMRF v2.0 RF Integrated Simulation</title>
+    <meta name="description" content="Integrated RF simulation: BLE mesh + LoRa mesh + APRS + SDR">
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --rf-green: #10b981;
+            --rf-blue: #3b82f6;
+            --rf-orange: #f59e0b;
+            --rf-purple: #a855f7;
+        }
+        .rf-panel { border: 1px solid rgba(255,255,255,0.1); }
+        .rf-panel .card-header { 
+            padding: 12px 16px; 
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .rf-panel .card-header h2 { margin: 0; font-size: 0.8rem; letter-spacing: 0.1em; }
+        .rf-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 12px;
+            padding: 16px;
+        }
+        .rf-stat-box {
+            background: rgba(0,0,0,0.3);
+            border: 1px solid rgba(255,255,255,0.05);
+            border-radius: 8px;
+            padding: 12px;
+        }
+        .rf-stat-label {
+            font-size: 0.6rem;
+            color: var(--text-sub);
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            display: block;
+            margin-bottom: 4px;
+        }
+        .rf-stat-value {
+            font-family: var(--font-mono);
+            font-size: 1.1rem;
+            font-weight: 600;
+        }
+        .rf-bar {
+            height: 6px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 3px;
+            margin-top: 8px;
+            overflow: hidden;
+        }
+        .rf-bar-fill {
+            height: 100%;
+            border-radius: 3px;
+            transition: width 0.3s ease;
+        }
+        .packet-log {
+            background: rgba(0,0,0,0.4);
+            border: 1px solid rgba(255,255,255,0.05);
+            border-radius: 6px;
+            padding: 8px 12px;
+            font-family: var(--font-mono);
+            font-size: 0.65rem;
+            color: var(--text-sub);
+            max-height: 100px;
+            overflow-y: auto;
+            margin: 0 16px 16px;
+        }
+        .packet-log .packet-entry {
+            padding: 4px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.03);
+        }
+        .packet-log .packet-time {
+            color: var(--muted);
+            margin-right: 8px;
+        }
+        .packet-log .packet-type {
+            color: var(--rf-green);
+            font-weight: 600;
+        }
+        .packet-log .packet-type.aprs {
+            color: var(--rf-orange);
+        }
+        .packet-log .packet-type.sdr {
+            color: var(--rf-purple);
+        }
+        .status-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 8px;
+            animation: pulse 2s infinite;
+        }
+        .status-indicator.active { background: var(--rf-green); }
+        .status-indicator.simulated { background: var(--rf-orange); }
+        .status-indicator.inactive { background: #6b7280; animation: none; }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .freq-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-family: var(--font-mono);
+            font-size: 0.6rem;
+            font-weight: 600;
+        }
+        .freq-badge.lora { background: rgba(16,185,129,0.2); color: var(--rf-green); }
+        .freq-badge.aprs { background: rgba(245,158,11,0.2); color: var(--rf-orange); }
+        .freq-badge.sdr { background: rgba(168,85,247,0.2); color: var(--rf-purple); }
+        .canvas-small {
+            width: 100%;
+            height: 80px;
+            background: rgba(0,0,0,0.3);
+            border-radius: 6px;
+            margin: 12px 16px;
+        }
+    </style>
+</head>
+<body>
+
+<!-- Background ambient orbs -->
+<div class="glow-container">
+    <div class="glow-orb orb-1"></div>
+    <div class="glow-orb orb-2"></div>
+    <div class="glow-orb orb-3"></div>
+</div>
+
+<!-- ═══════════════ HEADER ═══════════════ -->
+<header>
+    <div class="header-logo">
+        <span class="pulse-dot" id="system-pulse"></span>
+        <div>
+            <h1>PROJECT LIFELINE CORE</h1>
+            <p class="header-sub">AMRF v2.0 · Integrated RF Mesh · <span id="rf-version">LoRa + APRS + SDR</span></p>
+        </div>
+        <span class="badge" id="system-state-badge">DORMANT</span>
+    </div>
+    <div class="header-stats">
+        <div class="stat-pill">
+            <span class="label">VIGILANCE TIMER</span>
+            <span id="vigilance-timer" class="mono">--:--</span>
+        </div>
+        <div class="stat-pill">
+            <span class="label">NODES ACTIVE</span>
+            <span id="stat-nodes" class="mono">0</span>
+        </div>
+        <div class="stat-pill">
+            <span class="label">PHY MODE</span>
+            <span id="stat-phy" class="mono">DORMANT</span>
+        </div>
+        <div class="stat-pill">
+            <span class="label">RF LINKS</span>
+            <span id="stat-rf-links" class="mono">0</span>
+        </div>
+    </div>
+</header>
+
+<!-- ═══════════════ MAIN GRID ═══════════════ -->
+<main class="dashboard-grid">
+
+    <!-- ── PANEL 1: Field Visualization Canvas ── -->
+    <section class="card viz-card" id="panel-viz">
+        <div class="card-header">
+            <h2>① FIELD DEPLOYMENT VISUALIZATION</h2>
+            <div class="indicator" id="radio-mode-badge">PHY: DORMANT</div>
+        </div>
+        <div class="viz-container">
+            <canvas id="mesh-canvas"></canvas>
+            <div class="floor-overlay">
+                <div class="floor-line surface-line"><span>Surface — Scout / UAV</span></div>
+                <div class="floor-line floor-1"><span>Floor −1 (Rubble)</span></div>
+                <div class="floor-line floor-2"><span>Floor −2 (Basement)</span></div>
+                <div class="floor-line floor-3"><span>Floor −3 (Deep Vault)</span></div>
+            </div>
+            <div class="crypto-toast" id="crypto-toast">
+                <span class="crypto-icon">🔒</span>
+                <span id="crypto-toast-text">Encrypted packet captured</span>
+            </div>
+        </div>
+        <div class="viz-controls">
+            <button class="btn btn-danger" id="btn-trigger-disaster">⚡ TRIGGER P-WAVE / CELL BROADCAST</button>
+            <button class="btn btn-secondary" id="btn-reset">↺ RESET SYSTEM</button>
+            <label class="switch-label">
+                <span>Auto-drain battery</span>
+                <label class="switch">
+                    <input type="checkbox" id="control-auto-drain">
+                    <span class="toggle-slider"></span>
+                </label>
+            </label>
+        </div>
+    </section>
+
+    <!-- ── PANEL 2: Victim Device Controls ── -->
+    <section class="card controls-card" id="panel-controls">
+        <div class="card-header">
+            <h2>② VICTIM DEVICE — HARDWARE CONTROLS</h2>
+        </div>
+        <div class="control-sections">
+            <!-- Power -->
+            <div class="control-group">
+                <h3>🔋 Power &amp; Duty Cycle</h3>
+                <div class="control-row">
+                    <label for="control-battery">Battery: <span id="val-battery" class="mono accent">100%</span></label>
+                    <div class="slider-wrap">
+                        <input type="range" id="control-battery" min="1" max="100" value="100" class="slider">
+                        <div class="battery-bar" id="battery-bar"></div>
+                    </div>
+                </div>
+                <div class="control-row">
+                    <label for="control-sleep">Sleep Interval: <span id="val-sleep" class="mono">10s</span></label>
+                    <input type="range" id="control-sleep" min="1" max="120" value="10" class="slider">
+                </div>
+            </div>
+            <!-- Sensors -->
+            <div class="control-group">
+                <h3>📡 Sensor Array</h3>
+                <div class="sensor-grid">
+                    <div class="sensor-item">
+                        <span class="sensor-label">Barometer (hPa)</span>
+                        <input type="range" id="control-baro" min="950" max="1050" value="1013" class="slider">
+                        <span id="val-baro" class="mono">1013</span>
+                    </div>
+                    <div class="sensor-item">
+                        <span class="sensor-label">Accel X (m/s²)</span>
+                        <input type="range" id="control-accel-x" min="-20" max="20" value="0" class="slider">
+                        <span id="val-accel-x" class="mono">0</span>
+                    </div>
+                    <div class="sensor-item">
+                        <span class="sensor-label">Accel Y (m/s²)</span>
+                        <input type="range" id="control-accel-y" min="-20" max="20" value="0" class="slider">
+                        <span id="val-accel-y" class="mono">0</span>
+                    </div>
+                    <div class="sensor-item">
+                        <span class="sensor-label">Accel Z (m/s²)</span>
+                        <input type="range" id="control-accel-z" min="-20" max="20" value="10" class="slider">
+                        <span id="val-accel-z" class="mono">10</span>
+                    </div>
+                </div>
+            </div>
+            <!-- Emergency -->
+            <div class="control-group">
+                <h3>🚨 Emergency Actions</h3>
+                <div class="control-row">
+                    <button class="btn btn-warning" id="btn-sos">📢 BROADCAST SOS</button>
+                    <button class="btn btn-danger" id="btn-manual-triage">🔴 SET RED TRIAGE</button>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ── PANEL 3: Rescue Team Dashboard ── -->
+    <section class="card team-card" id="panel-team">
+        <div class="card-header">
+            <h2>③ RESCUE TEAM — COORDINATION</h2>
+        </div>
+        <div class="team-body">
+            <div class="team-grid">
+                <div class="team-member" id="team-alpha">
+                    <div class="team-avatar">A</div>
+                    <div class="team-info">
+                        <span class="team-name">ALPHA</span>
+                        <span class="team-status" id="team-alpha-status">Standby</span>
+                    </div>
+                    <span class="team-triage" id="team-alpha-triage">—</span>
+                </div>
+                <div class="team-member" id="team-bravo">
+                    <div class="team-avatar">B</div>
+                    <div class="team-info">
+                        <span class="team-name">BRAVO</span>
+                        <span class="team-status" id="team-bravo-status">Standby</span>
+                    </div>
+                    <span class="team-triage" id="team-bravo-triage">—</span>
+                </div>
+                <div class="team-member" id="team-charlie">
+                    <div class="team-avatar">C</div>
+                    <div class="team-info">
+                        <span class="team-name">CHARLIE</span>
+                        <span class="team-status" id="team-charlie-status">Standby</span>
+                    </div>
+                    <span class="team-triage" id="team-charlie-triage">—</span>
+                </div>
+            </div>
+            <div class="team-actions">
+                <button class="btn btn-primary" id="btn-deploy-alpha">🚀 DEPLOY ALPHA</button>
+                <button class="btn btn-primary" id="btn-deploy-bravo">🚀 DEPLOY BRAVO</button>
+                <button class="btn btn-primary" id="btn-deploy-charlie">🚀 DEPLOY CHARLIE</button>
+            </div>
+            <div class="rescue-log" id="rescue-log">
+                <div class="log-header">RESCUE OPERATIONS LOG</div>
+                <div class="log-entries" id="log-entries">
+                    <div class="log-entry">System initialized. Awaiting deployment orders...</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ── PANEL 4: Mesh Network Topology ── -->
+    <section class="card topology-card" id="panel-topology">
+        <div class="card-header">
+            <h2>④ MESH NETWORK TOPOLOGY</h2>
+        </div>
+        <div class="topology-body">
+            <canvas id="topology-canvas"></canvas>
+            <div class="topology-stats">
+                <div class="topo-stat">
+                    <span class="topo-label">HOPS</span>
+                    <span class="topo-value" id="topo-hops">0</span>
+                </div>
+                <div class="topo-stat">
+                    <span class="topo-label">PACKETS</span>
+                    <span class="topo-value" id="topo-packets">0</span>
+                </div>
+                <div class="topo-stat">
+                    <span class="topo-label">LATENCY</span>
+                    <span class="topo-value" id="topo-latency">0ms</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ── PANEL 5: START Triage Protocol ── -->
+    <section class="card triage-card" id="panel-triage">
+        <div class="card-header">
+            <h2>⑤ START TRIAGE PROTOCOL</h2>
+        </div>
+        <div class="triage-body">
+            <div class="triage-grid">
+                <div class="triage-category" id="triage-red">
+                    <div class="triage-color red"></div>
+                    <div class="triage-info">
+                        <span class="triage-label">IMMEDIATE</span>
+                        <span class="triage-count" id="triage-red-count">0</span>
+                    </div>
+                </div>
+                <div class="triage-category" id="triage-yellow">
+                    <div class="triage-color yellow"></div>
+                    <div class="triage-info">
+                        <span class="triage-label">DELAYED</span>
+                        <span class="triage-count" id="triage-yellow-count">0</span>
+                    </div>
+                </div>
+                <div class="triage-category" id="triage-green">
+                    <div class="triage-color green"></div>
+                    <div class="triage-info">
+                        <span class="triage-label">MINOR</span>
+                        <span class="triage-count" id="triage-green-count">0</span>
+                    </div>
+                </div>
+                <div class="triage-category" id="triage-black">
+                    <div class="triage-color black"></div>
+                    <div class="triage-info">
+                        <span class="triage-label">EXPECTANT</span>
+                        <span class="triage-count" id="triage-black-count">0</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ── PANEL 6: Depth & Position Estimation ── -->
+    <section class="card depth-card" id="panel-depth">
+        <div class="card-header">
+            <h2>⑥ DEPTH &amp; POSITION</h2>
+        </div>
+        <div class="depth-body">
+            <div class="depth-visual">
+                <div class="depth-bar" id="depth-bar">
+                    <div class="depth-marker" id="depth-marker"></div>
+                </div>
+                <div class="depth-scale">
+                    <span>0m</span>
+                    <span>-5m</span>
+                    <span>-10m</span>
+                    <span>-15m</span>
+                    <span>-20m</span>
+                </div>
+            </div>
+            <div class="depth-stats">
+                <div class="depth-stat">
+                    <span class="depth-label">ESTIMATED DEPTH</span>
+                    <span class="depth-value" id="depth-est">—</span>
+                </div>
+                <div class="depth-stat">
+                    <span class="depth-label">CONFIDENCE</span>
+                    <span class="depth-value" id="depth-conf">—</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ── PANEL 7: Encryption & Security ── -->
+    <section class="card crypto-card" id="panel-crypto">
+        <div class="card-header">
+            <h2>⑦ ECIES ENCRYPTION</h2>
+        </div>
+        <div class="crypto-body">
+            <div class="crypto-status">
+                <span class="crypto-label">STATUS</span>
+                <span class="crypto-value" id="crypto-status">ACTIVE</span>
+            </div>
+            <div class="crypto-stats">
+                <div class="crypto-stat">
+                    <span class="crypto-label">KEYS EXCHANGED</span>
+                    <span class="crypto-value" id="crypto-keys">0</span>
+                </div>
+                <div class="crypto-stat">
+                    <span class="crypto-label">PACKETS ENCRYPTED</span>
+                    <span class="crypto-value" id="crypto-packets">0</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ── PANEL 8: Battery & Power Management ── -->
+    <section class="card power-card" id="panel-power">
+        <div class="card-header">
+            <h2>⑧ POWER MANAGEMENT</h2>
+        </div>
+        <div class="power-body">
+            <div class="power-grid">
+                <div class="power-stat">
+                    <span class="power-label">VICTIM BATTERY</span>
+                    <span class="power-value" id="power-victim">100%</span>
+                </div>
+                <div class="power-stat">
+                    <span class="power-label">RELAY NODES</span>
+                    <span class="power-value" id="power-relay">—</span>
+                </div>
+                <div class="power-stat">
+                    <span class="power-label">RESUE TEAM</span>
+                    <span class="power-value" id="power-rescue">—</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ── PANEL 9: Vitals Monitoring ── -->
+    <section class="card vitals-card" id="panel-vitals">
+        <div class="card-header">
+            <h2>⑨ VITALS MONITORING</h2>
+        </div>
+        <div class="vitals-body" style="padding:16px; display:flex; flex-direction:column; gap:12px;">
+            <div style="display:flex; gap:16px; flex-wrap:wrap;">
+                <div class="vitals-stat-box">
+                    <span class="vitals-stat-label">❤️ BPM TREND</span>
+                    <span class="vitals-stat-value" id="vitals-bpm-trend">—</span>
+                </div>
+                <div class="vitals-stat-box">
+                    <span class="vitals-stat-label">🫁 SpO₂ TREND</span>
+                    <span class="vitals-stat-value" id="vitals-spo2-trend">—</span>
+                </div>
+                <div class="vitals-stat-box">
+                    <span class="vitals-stat-label">⏱️ TIME TRAPPED</span>
+                    <span class="vitals-stat-value" id="vitals-time-trapped">00:00:00</span>
+                </div>
+                <div class="vitals-stat-box">
+                    <span class="vitals-stat-label">🔋 EST. REMAINING</span>
+                    <span class="vitals-stat-value" id="vitals-battery-eta">—</span>
+                </div>
+            </div>
+            <div style="position:relative; height:130px; background:rgba(0,0,0,0.25); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+                <canvas id="vitals-chart" style="width:100%; height:100%; display:block;"></canvas>
+            </div>
+            <div style="display:flex; gap:12px; font-size:0.6rem; font-family:var(--font-mono); color:var(--text-sub);">
+                <span style="color:#ef4444;">● BPM</span>
+                <span style="color:#3b82f6;">● SpO₂</span>
+                <span style="color:#f59e0b;">● Battery %</span>
+                <span style="margin-left:auto; color:var(--muted);">60s rolling window</span>
+            </div>
+        </div>
+    </section>
+
+    <!-- ── PANEL 10: Environmental & Structural Intelligence ── -->
+    <section class="card environ-card" id="panel-environ">
+        <div class="card-header">
+            <h2>⑩ ENVIRONMENTAL INTEL</h2>
+        </div>
+        <div class="environ-body" style="padding:16px; display:flex; flex-direction:column; gap:14px;">
+            <div class="env-sensor-grid">
+                <div class="env-sensor-item">
+                    <span class="env-icon">🌡️</span>
+                    <span class="env-label">TEMPERATURE</span>
+                    <span class="env-value" id="env-temp">—</span>
+                </div>
+                <div class="env-sensor-item">
+                    <span class="env-icon">💡</span>
+                    <span class="env-label">LIGHT (LUX)</span>
+                    <span class="env-value" id="env-light">—</span>
+                </div>
+                <div class="env-sensor-item">
+                    <span class="env-icon">🎤</span>
+                    <span class="env-label">MIC LEVEL</span>
+                    <span class="env-value" id="env-mic">—</span>
+                </div>
+                <div class="env-sensor-item">
+                    <span class="env-icon">📐</span>
+                    <span class="env-label">TILT (°)</span>
+                    <span class="env-value" id="env-tilt">—</span>
+                </div>
+            </div>
+            <div style="border-top:1px solid var(--border); padding-top:12px;">
+                <div style="font-size:0.6rem; font-family:var(--font-mono); color:var(--text-sub); letter-spacing:0.08em; text-transform:uppercase; margin-bottom:8px;">STRUCTURAL COLLAPSE PROFILE</div>
+                <div style="display:flex; gap:8px; align-items:center;">
+                    <div class="collapse-type-badge" id="collapse-type">UNKNOWN</div>
+                    <span style="font-size:0.65rem; color:var(--text-sub);" id="collapse-desc">Awaiting accelerometer data...</span>
+                </div>
+            </div>
+            <div style="border-top:1px solid var(--border); padding-top:12px;">
+                <div style="font-size:0.6rem; font-family:var(--font-mono); color:var(--text-sub); letter-spacing:0.08em; text-transform:uppercase; margin-bottom:8px;">AIR POCKET ESTIMATION</div>
+                <div style="display:flex; gap:16px; align-items:center;">
+                    <div class="progress-bar-bg" style="flex:1; height:8px;">
+                        <div class="progress-bar-fill" id="air-pocket-fill" style="width:0%; background:linear-gradient(to right, #ef4444, #f59e0b, #10b981);"></div>
+                    </div>
+                    <span style="font-family:var(--font-mono); font-size:0.75rem; color:var(--primary); font-weight:600;" id="air-pocket-val">—</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ══════════ RF PANELS ══════════ -->
+
+    <!-- ── PANEL 11: LoRa Mesh Network ── -->
+    <section class="card rf-panel" id="panel-lora" style="grid-column: span 2;">
+        <div class="card-header">
+            <h2><span class="status-indicator active" id="lora-status-ind"></span>⑪ LORA MESH NETWORK</h2>
+            <div>
+                <span class="freq-badge lora">US915</span>
+                <span style="font-family:var(--font-mono); font-size:0.7rem; color:var(--text-sub); margin-left:8px;" id="lora-freq-display">915.0 MHz</span>
+            </div>
+        </div>
+        <div class="rf-grid">
+            <div class="rf-stat-box">
+                <span class="rf-stat-label">NODES</span>
+                <span class="rf-stat-value" id="lora-nodes" style="color:var(--rf-green);">0</span>
+            </div>
+            <div class="rf-stat-box">
+                <span class="rf-stat-label">PACKETS TX</span>
+                <span class="rf-stat-value" id="lora-tx-count" style="color:var(--rf-blue);">0</span>
+            </div>
+            <div class="rf-stat-box">
+                <span class="rf-stat-label">PACKETS RX</span>
+                <span class="rf-stat-value" id="lora-rx-count" style="color:var(--rf-blue);">0</span>
+            </div>
+            <div class="rf-stat-box">
+                <span class="rf-stat-label">HOPS (AVG)</span>
+                <span class="rf-stat-value" id="lora-avg-hops" style="color:var(--rf-orange);">0</span>
+            </div>
+            <div class="rf-stat-box">
+                <span class="rf-stat-label">RSSI</span>
+                <span class="rf-stat-value" id="lora-rssi" style="color:var(--rf-green);">—</span>
+                <div class="rf-bar"><div class="rf-bar-fill" id="lora-rssi-bar" style="width:0%; background:var(--rf-green);"></div></div>
+            </div>
+            <div class="rf-stat-box">
+                <span class="rf-stat-label">SNR</span>
+                <span class="rf-stat-value" id="lora-snr" style="color:var(--rf-blue);">—</span>
+            </div>
+            <div class="rf-stat-box">
+                <span class="rf-stat-label">SPREADING FACTOR</span>
+                <span class="rf-stat-value" id="lora-sf" style="color:var(--rf-purple);">SF7</span>
+            </div>
+            <div class="rf-stat-box">
+                <span class="rf-stat-label">BANDWIDTH</span>
+                <span class="rf-stat-value" id="lora-bw" style="color:var(--text-main);">125 kHz</span>
+            </div>
+        </div>
+        <canvas class="canvas-small" id="lora-waveform-canvas"></canvas>
+        <div class="packet-log" id="lora-packet-log">
+            <div class="packet-entry"><span class="packet-time">[SYS]</span> <span class="packet-type">LoRa</span> — Module initialized, waiting for disaster trigger...</div>
+        </div>
+    </section>
+
+    <!-- ── PANEL 12: APRS Protocol ── -->
+    <section class="card rf-panel" id="panel-aprs">
+        <div class="card-header">
+            <h2><span class="status-indicator simulated" id="aprs-status-ind"></span>⑫ APRS TRACKING</h2>
+            <span class="freq-badge aprs">VHF 2m</span>
+        </div>
+        <div class="rf-grid" style="grid-template-columns: repeat(2, 1fr);">
+            <div class="rf-stat-box">
+                <span class="rf-stat-label">FREQUENCY</span>
+                <span class="rf-stat-value" id="aprs-freq" style="color:var(--rf-orange);">144.390 MHz</span>
+            </div>
+            <div class="rf-stat-box">
+                <span class="rf-stat-label">CALLSIGN</span>
+                <span class="rf-stat-value" id="aprs-callsign" style="color:var(--rf-blue); font-size:0.85rem;">N0CALL-15</span>
+            </div>
+            <div class="rf-stat-box">
+                <span class="rf-stat-label">POSITIONS TX</span>
+                <span class="rf-stat-value" id="aprs-tx-count" style="color:var(--rf-green);">0</span>
+            </div>
+            <div class="rf-stat-box">
+                <span class="rf-stat-label">PACKETS RECEIVED</span>
+                <span class="rf-stat-value" id="aprs-rx-count" style="color:var(--rf-green);">0</span>
+            </div>
+            <div class="rf-stat-box">
+                <span class="rf-stat-label">IGATE STATUS</span>
+                <span class="rf-stat-value" id="aprs-igate" style="color:var(--rf-orange);">DISCONNECTED</span>
+            </div>
+            <div class="rf-stat-box">
+                <span class="rf-stat-label">DIGIPEATER</span>
+                <span class="rf-stat-value" id="aprs-digipeater" style="color:var(--text-main);">ACTIVE</span>
+            </div>
+        </div>
+        <div class="packet-log" id="aprs-packet-log">
+            <div class="packet-entry"><span class="packet-time">[SYS]</span> <span class="packet-type aprs">APRS</span> — Protocol handler ready (144.390 MHz)</div>
+        </div>
+    </section>
+
+    <!-- ── PANEL 13: SDR Receiver ── -->
+    <section class="card rf-panel" id="panel-sdr">
+        <div class="card-header">
+            <h2><span class="status-indicator inactive" id="sdr-status-ind"></span>⑬ SDR RECEIVER</h2>
+            <span class="freq-badge sdr">SDR</span>
+        </div>
+        <div class="rf-grid" style="grid-template-columns: repeat(2, 1fr);">
+            <div class="rf-stat-box">
+                <span class="rf-stat-label">CENTER FREQ</span>
+                <span class="rf-stat-value" id="sdr-center-freq" style="color:var(--rf-purple);">433.0 MHz</span>
+            </div>
+            <div class="rf-stat-box">
+                <span class="rf-stat-label">SAMPLE RATE</span>
+                <span class="rf-stat-value" id="sdr-sample-rate" style="color:var(--text-main);">2.4 MSPS</span>
+            </div>
+            <div class="rf-stat-box">
+                <span class="rf-stat-label">SIGNALS FOUND</span>
+                <span class="rf-stat-value" id="sdr-signals" style="color:var(--rf-blue);">0</span>
+            </div>
+            <div class="rf-stat-box">
+                <span class="rf-stat-label">DECODED PKTS</span>
+                <span class="rf-stat-value" id="sdr-decoded" style="color:var(--rf-green);">0</span>
+            </div>
+        </div>
+        <canvas class="canvas-small" id="sdr-spectrum-canvas"></canvas>
+        <div class="packet-log" id="sdr-packet-log">
+            <div class="packet-entry"><span class="packet-time">[SYS]</span> <span class="packet-type sdr">SDR</span> — Waiting for signal input...</div>
+        </div>
+    </section>
+
+    <!-- ── PANEL 14: Frequency Spectrum ── -->
+    <section class="card rf-panel" id="panel-spectrum">
+        <div class="card-header">
+            <h2>⑭ FREQUENCY ALLOCATION</h2>
+        </div>
+        <div class="rf-grid" style="grid-template-columns: repeat(2, 1fr);">
+            <div class="rf-stat-box" style="border-left: 3px solid var(--rf-green);">
+                <span class="rf-stat-label">ISM 915 MHz</span>
+                <span class="rf-stat-value" style="color:var(--rf-green); font-size:0.8rem;">LoRa Primary</span>
+                <span style="font-size:0.55rem; color:var(--text-sub);">902-928 MHz (FHSS)</span>
+            </div>
+            <div class="rf-stat-box" style="border-left: 3px solid var(--rf-orange);">
+                <span class="rf-stat-label">VHF 2m</span>
+                <span class="rf-stat-value" style="color:var(--rf-orange); font-size:0.8rem;">APRS 144.390</span>
+                <span style="font-size:0.55rem; color:var(--text-sub);">144.0-148.0 MHz (Amateur)</span>
+            </div>
+            <div class="rf-stat-box" style="border-left: 3px solid var(--rf-purple);">
+                <span class="rf-stat-label">ISM 433 MHz</span>
+                <span class="rf-stat-value" style="color:var(--rf-purple); font-size:0.8rem;">SDR Monitoring</span>
+                <span style="font-size:0.55rem; color:var(--text-sub);">433.05-434.79 MHz</span>
+            </div>
+            <div class="rf-stat-box" style="border-left: 3px solid var(--rf-blue);">
+                <span class="rf-stat-label">HF (Planned)</span>
+                <span class="rf-stat-value" style="color:var(--rf-blue); font-size:0.8rem;">Backup Channel</span>
+                <span style="font-size:0.55rem; color:var(--text-sub);">7.030 MHz (40m LSB)</span>
+            </div>
+        </div>
+        <canvas class="canvas-small" id="freq-alloc-canvas"></canvas>
+    </section>
+
+</main>
+
+<footer>
+    <p>Project Lifeline Core (AMRF) · Integrated RF Simulation v2.0 · LoRa + APRS + SDR · © 2026</p>
+</footer>
+
+<script src="app_integrated.js"></script>
+</body>
+</html>
+
+
+================================================================================
+ARCHIVO 2: app_integrated.js
+Motor de simulación AMRF v2.0. Integra todo el motor base con simulaciones
+de LoRa mesh networking, APRS position tracking, SDR spectrum scanning,
+y frequency allocation. Maneja 6 canvas simultáneos y mensajería de
+emergencia multi-protocolo redundante.
+================================================================================
+
+/**
+ * ═══════════════════════════════════════════════════════════════
+ *  PROJECT LIFELINE CORE — Integrated Simulation Engine v2.0
+ *  AMRF + LoRa Mesh + APRS + SDR + RF Communication
+ *  Full E2E: trapped device → ECIES → BLE/LoRa/APRS → Scout
+ * ═══════════════════════════════════════════════════════════════
+ */
+
+'use strict';
+
+// ── Physical Constants ─────────────────────────────────────────────
+const R_GAS         = 8.314;
+const G_GRAVITY     = 9.80665;
+const M_MOLAR       = 0.02897;
+const T_KELVIN      = 300.0;
+const P_START_PA    = 101325;
+const IPU_THRESHOLD = 0.40;
+const ID_ROTATE_MS  = 15000;
+
+// ── Global State ───────────────────────────────────────────────────
+let systemState   = 'DORMANT';
+let battery       = 100;
+let watchOnBody   = true;
+let bpm           = 72;
+let spo2          = 98;
+let pressureTrapped = 101325;
+let ipu           = 0.0;
+let lastTouchTime = 0;
+let activeSOS     = false;
+let relayActive   = false;
+let autoDrain     = false;
+let vigilanceSecs = 1800;
+let timerInterval = null;
+let drainInterval = null;
+let packetCount   = 0;
+let packetsThisMinute = 0;
+
+let ephemeralId = randomHex(4);
+
+// ── RF Communication State ─────────────────────────────────────────
+let rfState = {
+    loraActive: false,
+    aprsActive: false,
+    sdrActive: false,
+    currentFrequency: 915e6,
+    currentBand: 'US915',
+    spreadingFactor: 'SF10',
+    bandwidth: 'BW125',
+    txPower: 'MEDIUM',
+    meshNodeCount: 0,
+    aprsObjectCount: 0,
+    sdrSignalsDetected: 0,
+};
+
+// ── LoRa Mesh Network ──────────────────────────────────────────────
+const loraMesh = {
+    nodes: new Map(),
+    routingTable: new Map(),
+    packetLog: [],
+    stats: {
+        totalPackets: 0,
+        successfulDeliveries: 0,
+        failedDeliveries: 0,
+    },
+};
+
+// ── APRS Tracker ───────────────────────────────────────────────────
+const aprsTracker = {
+    objects: new Map(),
+    frequency: 144.390e6,
+    stats: {
+        packetsSent: 0,
+        lastBeacon: 0,
+    },
+};
+
+// ── SDR State ──────────────────────────────────────────────────────
+const sdrState = {
+    frequency: 144.390e6,
+    sampleRate: 96000,
+    demodMode: 'FM',
+    signals: [],
+    isReceiving: false,
+};
+
+// ── Canvas & Rendering ─────────────────────────────────────────────
+const canvas = document.getElementById('mesh-canvas');
+const ctx    = canvas ? canvas.getContext('2d') : null;
+
+const topCanvas = document.getElementById('topdown-canvas');
+const tctx      = topCanvas ? topCanvas.getContext('2d') : null;
+
+const intercomLog    = document.getElementById('intercom-log');
+const intercomSelect = document.getElementById('intercom-target-select');
+const intercomInput  = document.getElementById('intercom-input');
+const intercomSend   = document.getElementById('btn-intercom-send');
+
+const vitalsCanvas = document.getElementById('vitals-chart');
+const vctx         = vitalsCanvas ? vitalsCanvas.getContext('2d') : null;
+
+// RF Canvas
+const rfCanvas = document.getElementById('rf-spectrum-canvas');
+const rfctx    = rfCanvas ? rfCanvas.getContext('2d') : null;
+
+// RF Panel Canvases
+const loraWaveCanvas = document.getElementById('lora-waveform-canvas');
+const loraWaveCtx    = loraWaveCanvas ? loraWaveCanvas.getContext('2d') : null;
+const sdrSpectrumCanvas = document.getElementById('sdr-spectrum-canvas');
+const sdrSpectrumCtx  = sdrSpectrumCanvas ? sdrSpectrumCanvas.getContext('2d') : null;
+const freqAllocCanvas = document.getElementById('freq-alloc-canvas');
+const freqAllocCtx    = freqAllocCanvas ? freqAllocCanvas.getContext('2d') : null;
+
+// RF Panel DOM References
+const loraStatusInd   = document.getElementById('lora-status-ind');
+const loraFreqDisplay = document.getElementById('lora-freq-display');
+const loraNodesEl     = document.getElementById('lora-nodes');
+const loraTxCountEl   = document.getElementById('lora-tx-count');
+const loraRxCountEl   = document.getElementById('lora-rx-count');
+const loraAvgHopsEl   = document.getElementById('lora-avg-hops');
+const loraRssiEl      = document.getElementById('lora-rssi');
+const loraRssiBarEl   = document.getElementById('lora-rssi-bar');
+const loraSnrEl       = document.getElementById('lora-snr');
+const loraSfEl        = document.getElementById('lora-sf');
+const loraBwEl        = document.getElementById('lora-bw');
+const loraPacketLogEl = document.getElementById('lora-packet-log');
+
+const aprsStatusInd   = document.getElementById('aprs-status-ind');
+const aprsFreqEl      = document.getElementById('aprs-freq');
+const aprsCallsignEl  = document.getElementById('aprs-callsign');
+const aprsTxCountEl   = document.getElementById('aprs-tx-count');
+const aprsRxCountEl   = document.getElementById('aprs-rx-count');
+const aprsIgateEl     = document.getElementById('aprs-igate');
+const aprsDigipeaterEl = document.getElementById('aprs-digipeater');
+const aprsPacketLogEl = document.getElementById('aprs-packet-log');
+
+const sdrStatusInd    = document.getElementById('sdr-status-ind');
+const sdrCenterFreqEl = document.getElementById('sdr-center-freq');
+const sdrSampleRateEl = document.getElementById('sdr-sample-rate');
+const sdrSignalsEl    = document.getElementById('sdr-signals');
+const sdrDecodedEl    = document.getElementById('sdr-decoded');
+const sdrPacketLogEl  = document.getElementById('sdr-packet-log');
+
+// ── Vitals History Buffer ──────────────────────────────────────────
+const VITALS_HISTORY_MAX = 60;
+let vitalsHistory = { bpm: [], spo2: [], battery: [] };
+let trappedSince = 0;
+
+// ── RF Spectrum History ────────────────────────────────────────────
+const RF_HISTORY_MAX = 100;
+let rfSpectrumHistory = [];
+
+// ── Environmental Sensors ──────────────────────────────────────────
+let envState = { temp: 22, light: 0, mic: 0, tilt: 0 };
+
+// ── Multi-Node Mesh ────────────────────────────────────────────────
+const NODES = [
+    {
+        id: randomHex(4), color: '#ef4444',
+        bpm: 78, spo2: 97, battery: 85, flags: 0x02,
+        pressure: 101700, depth: -4.2, rssi: -65,
+        gps: '10.4806,-66.9036',
+        label: 'VICTIM A', isRelay: false,
+        loraId: randomHex(8), aprsCallsign: 'N0CALL-1',
+        x: 0.35, y: 0.40
+    },
+    {
+        id: randomHex(4), color: '#f59e0b',
+        bpm: 112, spo2: 93, battery: 42, flags: 0x02,
+        pressure: 102400, depth: -10.8, rssi: -73,
+        gps: '10.4808,-66.9031',
+        label: 'VICTIM B', isRelay: false,
+        loraId: randomHex(8), aprsCallsign: 'N0CALL-2',
+        x: 0.55, y: 0.60
+    },
+    {
+        id: randomHex(4), color: '#8b5cf6',
+        bpm: 105, spo2: 94, battery: 28, flags: 0x02,
+        pressure: 103200, depth: -18.5, rssi: -85,
+        gps: '10.4803,-66.9040',
+        label: 'VICTIM C (RELAY)', isRelay: true,
+        loraId: randomHex(8), aprsCallsign: 'N0CALL-3',
+        x: 0.70, y: 0.78
+    }
+];
+
+// ── DOM References ─────────────────────────────────────────────────
+const logOutput  = document.getElementById('log-output');
+const radarList  = document.getElementById('radar-victim-list');
+const pingAllBtn = document.getElementById('btn-ping-all');
+const scannerDot = document.getElementById('scanner-indicator');
+const cryptoToast = document.getElementById('crypto-toast');
+const systemBadge = document.getElementById('system-state-badge');
+const systemPulse = document.getElementById('system-pulse');
+
+// RF DOM References
+const loraStatusEl = document.getElementById('lora-status');
+const aprsStatusEl = document.getElementById('aprs-status');
+const sdrStatusEl  = document.getElementById('sdr-status');
+const rfLogEl      = document.getElementById('rf-log-output');
+const rfFreqEl     = document.getElementById('rf-current-freq');
+const rfSfEl       = document.getElementById('rf-current-sf');
+
+// ── Utility Functions ──────────────────────────────────────────────
+function randomHex(bytes) {
+    return Array.from({length: bytes}, () =>
+        Math.floor(Math.random() * 256).toString(16).padStart(2, '0')
+    ).join('').toUpperCase();
+}
+
+function fakeHexBlock(n = 4) {
+    return Array.from({length: n}, () => randomHex(1)).join(' ');
+}
+
+function formatFrequency(freq) {
+    return (freq / 1e6).toFixed(3) + ' MHz';
+}
+
+function timestamp() {
+    return new Date().toLocaleTimeString();
+}
+
+// ── Canvas Resize ──────────────────────────────────────────────────
+function resizeCanvas() {
+    if (canvas && canvas.parentElement) {
+        canvas.width  = canvas.parentElement.clientWidth;
+        canvas.height = canvas.parentElement.clientHeight;
+    }
+    if (topCanvas && topCanvas.parentElement) {
+        topCanvas.width  = topCanvas.parentElement.clientWidth;
+        topCanvas.height = topCanvas.parentElement.clientHeight;
+    }
+    if (vitalsCanvas && vitalsCanvas.parentElement) {
+        vitalsCanvas.width  = vitalsCanvas.parentElement.clientWidth;
+        vitalsCanvas.height = vitalsCanvas.parentElement.clientHeight;
+    }
+    if (rfCanvas && rfCanvas.parentElement) {
+        rfCanvas.width  = rfCanvas.parentElement.clientWidth;
+        rfCanvas.height = rfCanvas.parentElement.clientHeight;
+    }
+    // RF Panel canvases
+    if (loraWaveCanvas && loraWaveCanvas.parentElement) {
+        loraWaveCanvas.width  = loraWaveCanvas.parentElement.clientWidth - 32;
+        loraWaveCanvas.height = 80;
+    }
+    if (sdrSpectrumCanvas && sdrSpectrumCanvas.parentElement) {
+        sdrSpectrumCanvas.width  = sdrSpectrumCanvas.parentElement.clientWidth - 32;
+        sdrSpectrumCanvas.height = 80;
+    }
+    if (freqAllocCanvas && freqAllocCanvas.parentElement) {
+        freqAllocCanvas.width  = freqAllocCanvas.parentElement.clientWidth - 32;
+        freqAllocCanvas.height = 60;
+    }
+}
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+
+// ── Wave & Particle System ─────────────────────────────────────────
+let waves     = [];
+let particles = [];
+
+// Scout position
+let scoutX = 80, scoutDir = 1;
+
+// ── Math Helpers ───────────────────────────────────────────────────
+function calcDeltaH(pTrapped) {
+    return ((R_GAS * T_KELVIN) / (G_GRAVITY * M_MOLAR)) * Math.log(pTrapped / P_START_PA);
+}
+
+function calcIPU() {
+    const elapsed = (Date.now() - lastTouchTime) / 1000;
+    const iTouch  = Math.max(0, 1 - elapsed / 60);
+    let   mSig    = 0.1;
+    if (activeSOS) mSig += 0.5;
+    
+    if (watchOnBody) {
+        if (bpm > 100 || bpm < 50) mSig += 0.2;
+        ipu = Math.min(1.0, Math.max(0.0, 0.25 * iTouch + 0.25 * mSig + 0.50 * 1.0));
+    } else {
+        ipu = Math.min(1.0, Math.max(0.0, 0.60 + 0.2 * iTouch + 0.2 * mSig));
+    }
+    return ipu;
+}
+
+function getTriageForVitals(bpmV, spo2V, sosFlag, ipuV) {
+    if (ipuV < IPU_THRESHOLD) return { code: 3, label: 'BLACK (UNRESPONSIVE)', cls: 'triage-black' };
+    if (sosFlag) return { code: 2, label: 'RED (IMMEDIATE)', cls: 'triage-red' };
+    
+    if (watchOnBody) {
+        if (bpmV === 0) return { code: 3, label: 'BLACK (UNRESPONSIVE)', cls: 'triage-black' };
+        if (bpmV > 120 || bpmV < 50 || spo2V < 90) return { code: 2, label: 'RED (IMMEDIATE)', cls: 'triage-red' };
+        if (bpmV > 100 || bpmV < 60 || spo2V < 95) return { code: 1, label: 'YELLOW (DELAYED)', cls: 'triage-yellow' };
+    } else {
+        return { code: 1, label: 'YELLOW (UNKNOWN VITALS)', cls: 'triage-yellow' };
+    }
+    
+    return { code: 0, label: 'GREEN (STABLE)', cls: 'triage-green' };
+}
+
+// ── State Machine ──────────────────────────────────────────────────
+function resolveState() {
+    if (systemState === 'DORMANT') return 'DORMANT';
+    if (ipu < IPU_THRESHOLD)       return 'ORPHAN';
+    if (battery > 30)              return 'VIGILANCE';
+    if (battery > 15)              return 'ECO';
+    return 'SURVIVAL';
+}
+
+function stateConfig(st) {
+    const c = {
+        DORMANT:   { label:'DORMANT',           phy:'DORMANT',          interval:'N/A',     payload:'0B',       tx:'OFF',    color:'#475569' },
+        ORPHAN:    { label:'ORPHAN (NO BEACON)', phy:'DISABLED',         interval:'—',       payload:'0B',       tx:'OFF',    color:'#ef4444' },
+        VIGILANCE: { label:'VIGILANCE ACTIVE',   phy:'CODED_PHY (LR)',   interval:'1000 ms', payload:'255B EXT', tx:'MEDIUM', color:'#06b6d4' },
+        ECO:       { label:'ECO EMERGENCY',      phy:'CODED_PHY (ECO)',  interval:'3000 ms', payload:'255B EXT', tx:'LOW',    color:'#8b5cf6' },
+        SURVIVAL:  { label:'ULTRA SURVIVAL',     phy:'BLE_LEGACY',       interval:'5000 ms', payload:'24B TRUNC',tx:'LOW',    color:'#f59e0b' },
+    };
+    return c[st] || c.DORMANT;
+}
+
+// ── Logging ────────────────────────────────────────────────────────
+function addLog(msg, type = '') {
+    if (!logOutput) return;
+    const t    = new Date().toLocaleTimeString();
+    const line = document.createElement('div');
+    line.className = `log-line ${type}`;
+    line.innerHTML = `<span style="color:#475569;font-size:0.6rem">[${t}]</span> ${msg}`;
+    logOutput.appendChild(line);
+    logOutput.scrollTop = logOutput.scrollHeight;
+    while (logOutput.children.length > 30) logOutput.removeChild(logOutput.firstChild);
+}
+
+function addRFLog(msg, type = '') {
+    if (!rfLogEl) return;
+    const t    = new Date().toLocaleTimeString();
+    const line = document.createElement('div');
+    line.className = `log-line ${type}`;
+    line.innerHTML = `<span style="color:#475569;font-size:0.6rem">[${t}]</span> ${msg}`;
+    rfLogEl.appendChild(line);
+    rfLogEl.scrollTop = rfLogEl.scrollHeight;
+    while (rfLogEl.children.length > 30) rfLogEl.removeChild(rfLogEl.firstChild);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  LORA MESH FUNCTIONS
+// ═══════════════════════════════════════════════════════════════════
+
+function initLoRaMesh() {
+    addLog('[LoRa] Initializing mesh network...', 'log-success');
+    addLoRaPacketLog(`Frequency: ${formatFrequency(rfState.currentFrequency)}, SF: ${rfState.spreadingFactor}`);
+    
+    // Create mesh nodes for each victim
+    NODES.forEach(node => {
+        loraMesh.nodes.set(node.loraId, {
+            id: node.loraId,
+            name: node.label,
+            lat: parseFloat(node.gps.split(',')[0]),
+            lon: parseFloat(node.gps.split(',')[1]),
+            battery: node.battery,
+            isActive: false,
+            lastBeacon: 0,
+        });
+    });
+    
+    rfState.meshNodeCount = NODES.length;
+    addLog(`[LoRa] Mesh network ready with ${NODES.length} nodes`, 'log-success');
+}
+
+function activateLoRaMesh() {
+    if (rfState.loraActive) return;
+    
+    rfState.loraActive = true;
+    loraMesh.nodes.forEach(node => {
+        node.isActive = true;
+        node.lastBeacon = Date.now();
+    });
+    
+    addLog('[LoRa] Mesh network activated — beaconing started', 'log-success');
+    addLoRaPacketLog('Mesh network activated — beaconing started');
+    
+    if (loraStatusEl) {
+        loraStatusEl.textContent = 'ACTIVE';
+        loraStatusEl.style.color = '#10b981';
+    }
+    if (loraStatusInd) {
+        loraStatusInd.className = 'status-indicator active';
+    }
+    
+    // Start periodic beaconing
+    setInterval(loRaBeaconCycle, 5000);
+}
+
+function loRaBeaconCycle() {
+    if (!rfState.loraActive) return;
+    
+    loraMesh.nodes.forEach(node => {
+        if (node.isActive) {
+            const beacon = {
+                type: 'BEACON',
+                sourceId: node.id,
+                timestamp: Date.now(),
+                position: { lat: node.lat, lon: node.lon },
+                battery: node.battery,
+                signalStrength: -65 - Math.random() * 30,
+                hopCount: 0,
+            };
+            
+            loraMesh.packetLog.push(beacon);
+            loraMesh.stats.totalPackets++;
+            node.lastBeacon = Date.now();
+            
+            // Add to panel log
+            addLoRaPacketLog(`Beacon from ${node.name.slice(0,8)}... (${node.id.slice(0,4)})`);
+        }
+    });
+}
+
+function sendLoRaPacket(sourceId, destinationId, payload) {
+    const packet = {
+        type: 'DATA',
+        sourceId: sourceId,
+        destinationId: destinationId || 'BROADCAST',
+        timestamp: Date.now(),
+        hopCount: 0,
+        maxHops: 5,
+        payload: payload,
+        packetId: `${sourceId}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    };
+    
+    loraMesh.packetLog.push(packet);
+    loraMesh.stats.totalPackets++;
+    loraMesh.stats.successfulDeliveries++;
+    
+    addLoRaPacketLog(`Packet sent: ${sourceId.slice(0,4)} → ${destinationId ? destinationId.slice(0,4) : 'BROADCAST'}`);
+    
+    // Visualize packet
+    particles.push({
+        x0: canvas.width * 0.35,
+        y0: canvas.height * 0.5,
+        x1: canvas.width * 0.8,
+        y1: 55,
+        progress: 0,
+        speed: 0.015,
+        color: '#06b6d4',
+        type: 'lora',
+    });
+    
+    return packet;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  APRS FUNCTIONS
+// ═══════════════════════════════════════════════════════════════════
+
+function initAPRS() {
+    addLog('[APRS] Initializing APRS tracker...', 'log-success');
+    addAPRSPacketLog(`Frequency: ${formatFrequency(aprsTracker.frequency)}`);
+    
+    // Create APRS objects for each victim
+    NODES.forEach(node => {
+        const lat = parseFloat(node.gps.split(',')[0]);
+        const lon = parseFloat(node.gps.split(',')[1]);
+        
+        aprsTracker.objects.set(node.aprsCallsign, {
+            callsign: node.aprsCallsign,
+            name: node.label,
+            latitude: lat,
+            longitude: lon,
+            symbol: node.isRelay ? 'R' : '[',
+            lastUpdate: 0,
+        });
+    });
+    
+    rfState.aprsObjectCount = NODES.length;
+    addLog(`[APRS] Tracker ready with ${NODES.length} objects`, 'log-success');
+}
+
+function activateAPRS() {
+    if (rfState.aprsActive) return;
+    
+    rfState.aprsActive = true;
+    
+    addLog('[APRS] APRS tracker activated — beaconing started', 'log-success');
+    addAPRSPacketLog('Protocol handler ready — beaconing started');
+    
+    if (aprsStatusEl) {
+        aprsStatusEl.textContent = 'ACTIVE';
+        aprsStatusEl.style.color = '#10b981';
+    }
+    if (aprsStatusInd) {
+        aprsStatusInd.className = 'status-indicator simulated';
+    }
+    
+    // Start periodic beacons
+    setInterval(aprsBeaconCycle, 30000);
+}
+
+function aprsBeaconCycle() {
+    if (!rfState.aprsActive) return;
+    
+    aprsTracker.objects.forEach((obj, callsign) => {
+        // Add some movement simulation
+        obj.latitude += (Math.random() - 0.5) * 0.0001;
+        obj.longitude += (Math.random() - 0.5) * 0.0001;
+        
+        const packet = {
+            type: 'POSITION',
+            callsign: callsign,
+            timestamp: Date.now(),
+            position: { lat: obj.latitude, lon: obj.longitude },
+            symbol: obj.symbol,
+        };
+        
+        aprsTracker.stats.packetsSent++;
+        aprsTracker.stats.lastBeacon = Date.now();
+        obj.lastUpdate = Date.now();
+        
+        // Add to panel log
+        addAPRSPacketLog(`Position beacon: ${callsign} (${obj.latitude.toFixed(4)}, ${obj.longitude.toFixed(4)})`);
+    });
+}
+
+function sendAPRSMessage(addressee, message) {
+    const packet = {
+        type: 'MESSAGE',
+        callsign: 'N0CALL',
+        addressee: addressee,
+        message: message,
+        timestamp: Date.now(),
+    };
+    
+    aprsTracker.stats.packetsSent++;
+    addAPRSPacketLog(`Message to ${addressee}: ${message}`);
+    
+    return packet;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  SDR FUNCTIONS
+// ═══════════════════════════════════════════════════════════════════
+
+function initSDR() {
+    addLog('[SDR] Initializing Software Defined Radio...', 'log-success');
+    addSDRPacketLog(`Sample rate: ${(sdrState.sampleRate / 1e3).toFixed(0)} kHz, Demod: ${sdrState.demodMode}`);
+}
+
+function activateSDR() {
+    if (rfState.sdrActive) return;
+    
+    rfState.sdrActive = true;
+    sdrState.isReceiving = true;
+    
+    addLog('[SDR] SDR receiver activated — scanning', 'log-success');
+    addSDRPacketLog('Receiver activated — scanning for signals...');
+    
+    if (sdrStatusEl) {
+        sdrStatusEl.textContent = 'RECEIVING';
+        sdrStatusEl.style.color = '#10b981';
+    }
+    if (sdrStatusInd) {
+        sdrStatusInd.className = 'status-indicator active';
+    }
+    
+    // Start scanning
+    sdrScanLoop();
+}
+
+function sdrScanLoop() {
+    if (!rfState.sdrActive) return;
+    
+    // Simulate signal detection
+    if (Math.random() < 0.15) {
+        const signal = {
+            frequency: sdrState.frequency + (Math.random() - 0.5) * 10000,
+            strength: -80 + Math.random() * 60,
+            bandwidth: 12500,
+            type: Math.random() < 0.5 ? 'LoRa' : 'APRS',
+            timestamp: Date.now(),
+        };
+        
+        sdrState.signals.push(signal);
+        rfState.sdrSignalsDetected++;
+        
+        addSDRPacketLog(`Signal detected: ${formatFrequency(signal.frequency)} (${signal.type}, ${signal.strength.toFixed(0)} dBm)`);
+    }
+    
+    setTimeout(sdrScanLoop, 200);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  UI UPDATE FUNCTIONS
+// ═══════════════════════════════════════════════════════════════════
+
+function updateUI() {
+    calcIPU();
+    const altDelta = calcDeltaH(pressureTrapped);
+    const newState = resolveState();
+
+    if (newState !== systemState && systemState !== 'DORMANT') {
+        addLog(`[PowerMgr] State transition: ${systemState} → ${newState}`, 'log-alert');
+    }
+    if (systemState !== 'DORMANT') systemState = newState;
+
+    const cfg = stateConfig(systemState);
+
+    // Header badge
+    if (systemBadge) {
+        systemBadge.textContent = cfg.label;
+        systemBadge.className   = `badge state-${systemState.toLowerCase()}`;
+    }
+    if (systemPulse) {
+        systemPulse.className = `pulse-dot ${systemState !== 'DORMANT' && systemState !== 'ORPHAN' ? 'active' : ''}`;
+    }
+
+    // Header stats
+    const statPhy = document.getElementById('stat-phy');
+    const statNodes = document.getElementById('stat-nodes');
+    const statPpm = document.getElementById('stat-ppm');
+    
+    if (statPhy) statPhy.textContent = cfg.phy;
+    if (statNodes) {
+        statNodes.textContent = (systemState !== 'DORMANT' && systemState !== 'ORPHAN')
+            ? (relayActive ? NODES.length : NODES.length - 1)
+            : 0;
+    }
+    if (statPpm) statPpm.textContent = packetsThisMinute;
+
+    // Radio mode badge
+    const rmb = document.getElementById('radio-mode-badge');
+    if (rmb) {
+        rmb.textContent = `PHY: ${cfg.phy}`;
+        rmb.style.color = cfg.color;
+        rmb.style.borderColor = cfg.color;
+    }
+
+    // Status grid
+    const statusRadio = document.getElementById('status-radio');
+    const statusInterval = document.getElementById('status-interval');
+    const statusTxPower = document.getElementById('status-tx-power');
+    const statusRelay = document.getElementById('status-relay');
+    
+    if (statusRadio) statusRadio.textContent = cfg.label;
+    if (statusInterval) statusInterval.textContent = cfg.interval;
+    if (statusTxPower) statusTxPower.textContent = cfg.tx;
+    if (statusRelay) {
+        statusRelay.textContent = relayActive && systemState !== 'DORMANT' ? 'ACTIVE (HOP-1)' : 'INACTIVE';
+    }
+
+    // IPU bar
+    const ipuValue = document.getElementById('ipu-value');
+    const ipuFill = document.getElementById('ipu-fill');
+    if (ipuValue) ipuValue.textContent = ipu.toFixed(2);
+    if (ipuFill) {
+        ipuFill.style.width = `${ipu * 100}%`;
+        ipuFill.style.background = ipu < 0.4 ? '#ef4444' : ipu < 0.7 ? '#f59e0b' : 'linear-gradient(to right, #06b6d4, #10b981)';
+    }
+
+    // Triage badge
+    const triage = getTriageForVitals(bpm, spo2, activeSOS, ipu);
+    const badge  = document.getElementById('triage-badge-value');
+    if (badge) {
+        badge.textContent = triage.label;
+        badge.className   = `triage-badge ${triage.cls}`;
+    }
+
+    // Depth display (positive = below ground: higher trapped pressure = deeper)
+    const depthM = altDelta;
+    const depthEl = document.getElementById('depth-display');
+    if (depthEl) {
+        depthEl.textContent = `${depthM.toFixed(2)} m`;
+        depthEl.style.color = depthM > 5 ? '#ef4444' : depthM > 1 ? '#f59e0b' : '#8b5cf6';
+    }
+
+    // Scout interface
+    const active = systemState !== 'DORMANT' && systemState !== 'ORPHAN';
+    updateScoutTable(active);
+    updateECIESPanel(active, triage, depthM);
+
+    // Scanner dot
+    if (scannerDot) {
+        if (active) {
+            scannerDot.classList.add('active');
+            if (pingAllBtn) pingAllBtn.disabled = false;
+        } else {
+            scannerDot.classList.remove('active');
+            if (pingAllBtn) pingAllBtn.disabled = true;
+        }
+    }
+
+    // Intercom
+    if (intercomSelect && intercomInput && intercomSend) {
+        if (active) {
+            intercomSelect.disabled = false;
+            intercomInput.disabled = false;
+            intercomSend.disabled = false;
+            intercomSelect.innerHTML = `<option value="ALL">BROADCAST TO ALL NODES</option>` + 
+                NODES.map(n => `<option value="${n.id}">${n.label} (${n.id})</option>`).join('');
+        } else {
+            intercomSelect.disabled = true;
+            intercomInput.disabled = true;
+            intercomSend.disabled = true;
+        }
+    }
+    
+    // Update RF status
+    updateRFPanels();
+}
+
+function updateRFStatus() {
+    // Legacy function - now handled by updateRFPanels()
+    updateRFPanels();
+}
+
+// ── Scout Radar Table ──────────────────────────────────────────────
+function rssiPips(rssi) {
+    const bars = rssi > -60 ? 4 : rssi > -70 ? 3 : rssi > -80 ? 2 : 1;
+    const pips  = Array.from({length: 4}, (_, i) =>
+        `<div class="rssi-pip${i < bars ? ' active' : ''}" style="height:${(i+1)*4}px"></div>`
+    ).join('');
+    return `<div class="rssi-bar">${pips}<span style="margin-left:3px;color:#64748b;font-size:0.58rem">${rssi}</span></div>`;
+}
+
+function updateScoutTable(active) {
+    if (!radarList) return;
+    
+    if (!active) {
+        radarList.innerHTML = `<tr><td colspan="8" class="text-center text-muted">
+            No beacons detected — trigger a P-Wave alert to start scanning.
+        </td></tr>`;
+        return;
+    }
+
+    const primaryTriage = getTriageForVitals(bpm, spo2, activeSOS, ipu);
+    const primaryDepthM = calcDeltaH(pressureTrapped);
+    const primaryNode = {
+        id: ephemeralId,
+        label: 'VICTIM A (LIVE)',
+        triage: primaryTriage,
+        depthM: primaryDepthM,
+        gps: '10.4806,-66.9036',
+        bpmV: bpm, spo2V: spo2,
+        rssi: -65, battery: battery,
+        isRelay: false, isLive: true,
+        loraId: ephemeralId,
+    };
+
+    const simNodes = NODES.slice(1).map((n, i) => {
+        const tr = getTriageForVitals(n.bpm, n.spo2, false, 0.80);
+        return {
+            id: n.id, label: n.label,
+            triage: tr,
+            depthM: calcDeltaH(n.pressure),
+            gps: n.gps,
+            bpmV: n.bpm, spo2V: n.spo2,
+            rssi: n.rssi, battery: n.battery,
+            isRelay: n.isRelay, isLive: false,
+            loraId: n.loraId,
+        };
+    });
+
+    const allNodes = [primaryNode, ...simNodes.slice(0, relayActive ? 2 : 1)];
+    allNodes.sort((a, b) => b.triage.code - a.triage.code || a.triage.code - b.triage.code);
+
+    radarList.innerHTML = allNodes.map(node => `
+        <tr>
+            <td class="node-id${node.isRelay ? ' relayed' : ''}">${node.id}
+                ${node.isLive ? '<span style="color:#06b6d4;font-size:0.55rem;margin-left:4px">◉ LIVE</span>' : ''}
+                ${node.isRelay ? '<span style="color:#8b5cf6;font-size:0.55rem;margin-left:4px">◈ VIA HOP</span>' : ''}
+            </td>
+            <td><span class="triage-badge ${node.triage.cls}">${node.triage.label}</span></td>
+            <td style="color:${node.depthM > 10 ? '#ef4444' : '#f59e0b'}">${node.depthM.toFixed(1)} m ↓</td>
+            <td style="font-size:0.62rem;color:#64748b">${node.gps}</td>
+            <td>${node.bpmV} BPM / ${node.spo2V}% SpO₂</td>
+            <td>${rssiPips(node.rssi)}</td>
+            <td style="color:${node.battery < 20 ? '#ef4444' : node.battery < 40 ? '#f59e0b' : '#10b981'}">${node.battery}%</td>
+            <td><button class="btn btn-sm btn-primary" onclick="pingNode('${node.id}',${node.isRelay})">📡 PING</button></td>
+        </tr>
+    `).join('');
+}
+
+// ── ECIES Panel ────────────────────────────────────────────────────
+function updateECIESPanel(active, triage, depthM) {
+    const statusEl = document.getElementById('ecies-status');
+    if (!statusEl) return;
+
+    if (!active) {
+        statusEl.textContent = 'IDLE';
+        statusEl.style.color = '';
+        statusEl.style.borderColor = '';
+        resetECIESBytes();
+        resetDecryptedPanel();
+        return;
+    }
+
+    statusEl.textContent   = 'LIVE CAPTURE';
+    statusEl.style.color   = '#8b5cf6';
+    statusEl.style.borderColor = '#8b5cf6';
+}
+
+function animateECIESCapture(triage, depthM) {
+    ['seg-ephpub','seg-iv','seg-cipher','seg-tag'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.classList.add('active');
+    });
+
+    document.getElementById('bytes-ephpub').textContent = fakeHexBlock(4) + ' ' + fakeHexBlock(4);
+    document.getElementById('bytes-iv').textContent     = fakeHexBlock(4) + ' ' + fakeHexBlock(2);
+    document.getElementById('bytes-cipher').textContent = fakeHexBlock(4) + ' ··· ' + fakeHexBlock(4);
+    document.getElementById('bytes-tag').textContent    = fakeHexBlock(4) + ' ' + fakeHexBlock(4);
+
+    const baseCipherLen = 1 + bpm.toString().length + 1 + 1 + 1 + 4 + 16;
+    const relayExtraLen = relayActive ? 75 : 0;
+    const cipherLen = baseCipherLen + relayExtraLen;
+    
+    const sizeCipher = document.getElementById('size-cipher');
+    if (sizeCipher) sizeCipher.textContent = `~${cipherLen + 31} bytes · AES-GCM-256`;
+
+    addLog(`[ECIES] Captured wire packet — ${60 + cipherLen} bytes encrypted${relayActive ? ' (MULTI-HOP BUNDLE)' : ''}`, 'log-alert');
+
+    setTimeout(() => {
+        ['seg-ephpub','seg-iv','seg-cipher','seg-tag'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.classList.replace('active', 'decoded');
+        });
+        ['bytes-ephpub','bytes-iv','bytes-cipher','bytes-tag'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.classList.remove('encrypted');
+            if (el) el.classList.add('clear');
+        });
+
+        const decGps = document.getElementById('dec-gps');
+        const decBpm = document.getElementById('dec-bpm');
+        const decSpo2 = document.getElementById('dec-spo2');
+        const decDepth = document.getElementById('dec-depth');
+        const decTriage = document.getElementById('dec-triage');
+        
+        if (decGps) decGps.textContent = `${bpm > 60 ? '10.4806,-66.9036' : '?'}`;
+        if (decBpm) decBpm.textContent = `${bpm} BPM`;
+        if (decSpo2) decSpo2.textContent = `${spo2}%`;
+        if (decDepth) decDepth.textContent = `${depthM.toFixed(1)} m`;
+        if (decTriage) decTriage.innerHTML = `<span class="triage-badge ${triage.cls}">${triage.label}</span>`;
+
+        addLog(`[ScoutDecoder] Packet decrypted — BPM:${bpm} SpO₂:${spo2}% Depth:${depthM.toFixed(1)}m → ${triage.label}`, 'log-success');
+        
+        if (relayActive) {
+            addLog(`[ScoutDecoder] ◈ Nested payload found in cache!`, 'log-alert');
+            setTimeout(() => {
+                addLog(`[ScoutDecoder] ◈ Secondary node decrypted from multi-hop proxy.`, 'log-success');
+            }, 600);
+        }
+
+        setTimeout(() => {
+            resetECIESSegments();
+        }, 5000 + (relayActive ? 1500 : 0));
+    }, 1200);
+}
+
+function resetECIESBytes() {
+    ['bytes-ephpub','bytes-iv','bytes-cipher','bytes-tag'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+            el.textContent = '-- -- -- --';
+            el.classList.remove('encrypted','clear');
+        }
+    });
+    ['seg-ephpub','seg-iv','seg-cipher','seg-tag'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.classList.remove('active','decoded');
+    });
+}
+
+function resetECIESSegments() {
+    resetECIESBytes();
+}
+
+function resetDecryptedPanel() {
+    ['dec-gps','dec-bpm','dec-spo2','dec-depth'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = '—';
+    });
+    const decTriage = document.getElementById('dec-triage');
+    if (decTriage) decTriage.innerHTML = '<span class="triage-badge triage-green">—</span>';
+}
+
+// ── Ping Node ──────────────────────────────────────────────────────
+window.pingNode = function(nodeId, isRelay) {
+    if (systemState === 'DORMANT' || systemState === 'ORPHAN') return;
+
+    addLog(`[Scout] Sending acoustic ping to node ${nodeId}…`, 'log-alert');
+    addLoRaPacketLog(`Ping request to ${nodeId.slice(0,4)}...`);
+
+    setTimeout(() => {
+        addLog(`[SecurityEngine] Validating Ed25519 signature…`, 'log-alert');
+    }, 300);
+
+    setTimeout(() => {
+        addLog(`[SecurityEngine] ✓ Signature valid.`, 'log-success');
+        addLog(`[HardwareAudio] Playing 18 kHz chirp.`, 'log-success');
+        addLoRaPacketLog('Acoustic ping transmitted');
+
+        const node = NODES.find(n => n.id === nodeId) || NODES[0];
+        node.pingUntil = Date.now() + 2500;
+        
+        const nx = canvas.width * node.x;
+        const ny = canvas.height * node.y;
+        for (let i = 0; i < 7; i++) {
+            setTimeout(() => {
+                waves.push({ x: nx, y: ny, r: 8, color: '#06b6d4', maxR: 400, speed: 5 });
+            }, i * 180);
+        }
+    }, 900);
+};
+
+// ── Ping All ───────────────────────────────────────────────────────
+if (pingAllBtn) {
+    pingAllBtn.addEventListener('click', () => {
+        NODES.forEach((n, i) => {
+            setTimeout(() => window.pingNode(n.id, n.isRelay), i * 500);
+        });
+    });
+}
+
+// ── Intercom ───────────────────────────────────────────────────────
+if (intercomSend) {
+    intercomSend.addEventListener('click', () => {
+        const msg = intercomInput.value.trim();
+        if (!msg) return;
+        const target = intercomSelect.value;
+        
+        const time = new Date().toLocaleTimeString();
+        intercomLog.innerHTML += `<div style="margin-top:4px"><span style="color:var(--muted)">[${time}]</span> <span style="color:var(--primary)">SCOUT → ${target}:</span> <span style="color:var(--text)">${msg}</span></div>`;
+        intercomLog.scrollTop = intercomLog.scrollHeight;
+        intercomInput.value = '';
+        
+        addLog(`[Uplink] Transmitting TTS via BLE Coded PHY.`, 'log-alert');
+        addAPRSPacketLog(`Message sent to ${target}: ${msg}`);
+        
+        setTimeout(() => {
+            addLog(`[SecurityEngine] Command signed.`, 'log-success');
+            if (target === 'ALL') {
+                NODES.forEach(n => { n.pingUntil = Date.now() + 1500; });
+            } else {
+                const node = NODES.find(n => n.id === target);
+                if (node) node.pingUntil = Date.now() + 1500;
+            }
+        }, 800);
+    });
+    
+    intercomInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') intercomSend.click();
+    });
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  CANVAS RENDERING
+// ═══════════════════════════════════════════════════════════════════
+
+function draw() {
+    if (!ctx || !canvas) {
+        requestAnimationFrame(draw);
+        return;
+    }
+    
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Grid
+    ctx.strokeStyle = 'rgba(6,182,212,0.03)';
+    ctx.lineWidth   = 1;
+    for (let x = 0; x < canvas.width; x += 32) {
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke();
+    }
+    for (let y = 0; y < canvas.height; y += 32) {
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
+    }
+
+    // Rubble block
+    const rtop = 90, rheight = canvas.height - 150;
+    ctx.fillStyle   = 'rgba(15,23,42,0.5)';
+    ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+    ctx.lineWidth   = 1;
+    ctx.beginPath(); ctx.roundRect(20, rtop, canvas.width - 40, rheight, 4); ctx.fill(); ctx.stroke();
+
+    // Crack lines
+    ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+    ctx.setLineDash([6,10]);
+    [[0.1,0.15,0.85,0.35],[0.3,0.45,0.7,0.65],[0.5,0.2,0.9,0.55]].forEach(([x1,y1,x2,y2]) => {
+        ctx.beginPath();
+        ctx.moveTo(canvas.width * x1, rtop + rheight * y1);
+        ctx.lineTo(canvas.width * x2, rtop + rheight * y2);
+        ctx.stroke();
+    });
+    ctx.setLineDash([]);
+
+    // Scout
+    scoutX += 1.2 * scoutDir;
+    if (scoutX > canvas.width - 60 || scoutX < 60) scoutDir *= -1;
+
+    const sy = 55;
+    ctx.fillStyle = '#06b6d4';
+    ctx.shadowColor = '#06b6d4'; ctx.shadowBlur = 14;
+    ctx.beginPath(); ctx.arc(scoutX, sy, 11, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // Scanner cone
+    if (systemState !== 'DORMANT' && systemState !== 'ORPHAN') {
+        const grad = ctx.createLinearGradient(scoutX, sy, scoutX, sy + 200);
+        grad.addColorStop(0, 'rgba(6,182,212,0.12)');
+        grad.addColorStop(1, 'rgba(6,182,212,0)');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.moveTo(scoutX, sy);
+        ctx.lineTo(scoutX - 60, sy + 200);
+        ctx.lineTo(scoutX + 60, sy + 200);
+        ctx.closePath();
+        ctx.fill();
+    }
+
+    ctx.fillStyle = '#f1f5f9';
+    ctx.font = '9px monospace';
+    ctx.fillText('SCOUT / UAV', scoutX - 30, sy - 18);
+
+    // Draw victim nodes
+    NODES.forEach((node, idx) => {
+        if (node.isRelay && !relayActive) return;
+        if (systemState === 'DORMANT' || systemState === 'ORPHAN') return;
+
+        const nx = canvas.width  * node.x;
+        const ny = canvas.height * node.y;
+
+        if (idx === 0) {
+            const liveDepth  = calcDeltaH(pressureTrapped);
+            const depthRatio = Math.min(1.0, Math.max(0, liveDepth / 30));
+            node.y = 0.30 + depthRatio * 0.50;
+        }
+
+        let fnx = canvas.width  * node.x;
+        let fny = canvas.height * node.y;
+
+        if (node.pingUntil && Date.now() < node.pingUntil) {
+            fnx += (Math.random() - 0.5) * 8;
+            fny += (Math.random() - 0.5) * 8;
+        }
+
+        // Relay link
+        if (node.isRelay) {
+            const prevNode = NODES[idx - 1];
+            ctx.strokeStyle = 'rgba(139,92,246,0.35)';
+            ctx.setLineDash([5,8]);
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.moveTo(fnx, fny);
+            ctx.lineTo(canvas.width * prevNode.x, canvas.height * prevNode.y);
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+
+        let nColor = node.color;
+        if (idx === 0) {
+            const tr = getTriageForVitals(bpm, spo2, activeSOS, ipu);
+            nColor = tr.code === 0 ? '#10b981' : tr.code === 1 ? '#f59e0b' : tr.code === 2 ? '#ef4444' : '#475569';
+        }
+
+        const pulse = Math.sin(Date.now() / 300 + idx) * 4;
+        ctx.strokeStyle = nColor + '55';
+        ctx.lineWidth   = 2;
+        ctx.beginPath(); ctx.arc(fnx, fny, 14 + pulse, 0, Math.PI * 2); ctx.stroke();
+
+        ctx.fillStyle   = nColor;
+        ctx.shadowColor = nColor; ctx.shadowBlur = 16;
+        ctx.beginPath(); ctx.arc(fnx, fny, 7, 0, Math.PI * 2); ctx.fill();
+        ctx.shadowBlur  = 0;
+
+        ctx.fillStyle = '#e2e8f0';
+        ctx.font      = '8px monospace';
+        ctx.fillText(idx === 0 ? `${node.label} (LIVE)` : node.label, fnx + 12, fny + 3);
+        ctx.fillStyle = '#64748b';
+        ctx.fillText(node.id, fnx + 12, fny + 13);
+
+        // LoRa indicator
+        if (rfState.loraActive) {
+            ctx.fillStyle = '#06b6d4';
+            ctx.font = '7px monospace';
+            ctx.fillText(`LoRa:${node.loraId.slice(0,4)}`, fnx + 12, fny + 21);
+        }
+
+        ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+        ctx.lineWidth   = 1;
+        ctx.beginPath(); ctx.moveTo(fnx, rtop); ctx.lineTo(fnx, fny); ctx.stroke();
+
+        // BLE wave emission
+        const emitChance = systemState === 'VIGILANCE' ? 0.008
+                         : systemState === 'ECO'       ? 0.004
+                         :                               0.002;
+
+        if (Math.random() < emitChance) {
+            const wColor = node.isRelay ? '#8b5cf6' : (idx === 0 ? '#06b6d4' : '#f59e0b');
+            waves.push({ x: fnx, y: fny, r: 5, color: wColor, maxR: 280, speed: 2.5 });
+            spawnPacket(fnx, fny, scoutX, sy, nColor);
+        }
+    });
+
+    // Animate waves
+    for (let i = waves.length - 1; i >= 0; i--) {
+        const w = waves[i];
+        w.r += w.speed;
+        const alpha = 1 - w.r / w.maxR;
+        ctx.strokeStyle = w.color;
+        ctx.lineWidth   = Math.max(0.3, 2 * alpha);
+        ctx.shadowColor = w.color;
+        ctx.shadowBlur  = 6;
+        ctx.globalAlpha = alpha;
+        ctx.beginPath(); ctx.arc(w.x, w.y, w.r, 0, Math.PI * 2); ctx.stroke();
+        ctx.globalAlpha = 1;
+        ctx.shadowBlur  = 0;
+        if (w.r >= w.maxR) waves.splice(i, 1);
+    }
+
+    // Animate data packets
+    for (let i = particles.length - 1; i >= 0; i--) {
+        const p   = particles[i];
+        p.progress += p.speed;
+        const t  = p.progress;
+        const px = p.x0 + (p.x1 - p.x0) * t;
+        const py = p.y0 + (p.y1 - p.y0) * t - Math.sin(t * Math.PI) * 30;
+
+        ctx.fillStyle   = p.color;
+        ctx.shadowColor = p.color; ctx.shadowBlur = 10;
+        ctx.beginPath(); ctx.arc(px, py, 3, 0, Math.PI * 2); ctx.fill();
+        ctx.shadowBlur  = 0;
+
+        if (t >= 1.0) {
+            particles.splice(i, 1);
+            packetCount++;
+            packetsThisMinute++;
+
+            if (Math.random() < 0.3 && systemState !== 'DORMANT') {
+                showCryptoToast();
+                const tr = getTriageForVitals(bpm, spo2, activeSOS, ipu);
+                const dh = Math.abs(calcDeltaH(pressureTrapped));
+                animateECIESCapture(tr, dh);
+            }
+        }
+
+        if (p.progress > 1.2) particles.splice(i, 1);
+    }
+
+    // ── TOP-DOWN MAP ──
+    if (tctx && topCanvas.width > 0) {
+        tctx.clearRect(0, 0, topCanvas.width, topCanvas.height);
+        
+        tctx.strokeStyle = 'rgba(255,255,255,0.03)';
+        tctx.lineWidth = 1;
+        for (let x = 0; x < topCanvas.width; x += 40) {
+            tctx.beginPath(); tctx.moveTo(x, 0); tctx.lineTo(x, topCanvas.height); tctx.stroke();
+        }
+        for (let y = 0; y < topCanvas.height; y += 40) {
+            tctx.beginPath(); tctx.moveTo(0, y); tctx.lineTo(topCanvas.width, y); tctx.stroke();
+        }
+        
+        tctx.fillStyle = 'rgba(239, 68, 68, 0.05)';
+        tctx.beginPath(); tctx.arc(topCanvas.width/2, topCanvas.height/2, 40 + Math.sin(Date.now()/500)*5, 0, Math.PI*2); tctx.fill();
+        tctx.fillStyle = 'rgba(239, 68, 68, 0.3)';
+        tctx.font = '8px monospace';
+        tctx.fillText("EPICENTER", topCanvas.width/2 - 20, topCanvas.height/2 + 3);
+        
+        if (systemState !== 'DORMANT' && systemState !== 'ORPHAN') {
+            NODES.forEach((node, idx) => {
+                if (node.isRelay && !relayActive) return;
+                
+                const angle = node.x * Math.PI * 2;
+                const distance = node.y * topCanvas.height * 0.4;
+                
+                let tx = topCanvas.width/2 + Math.cos(angle) * distance;
+                let ty = topCanvas.height/2 + Math.sin(angle) * distance;
+                
+                if (node.pingUntil && Date.now() < node.pingUntil) {
+                    tx += (Math.random() - 0.5) * 4;
+                    ty += (Math.random() - 0.5) * 4;
+                }
+                
+                let nColor = node.color;
+                if (idx === 0) {
+                    const tr = getTriageForVitals(bpm, spo2, activeSOS, ipu);
+                    nColor = tr.code === 0 ? '#10b981' : tr.code === 1 ? '#f59e0b' : tr.code === 2 ? '#ef4444' : '#475569';
+                }
+                
+                tctx.strokeStyle = nColor + '66';
+                tctx.lineWidth = 1.5;
+                tctx.beginPath(); tctx.arc(tx, ty, 8 + (Math.sin(Date.now()/200 + idx)*2), 0, Math.PI*2); tctx.stroke();
+                
+                tctx.fillStyle = nColor;
+                tctx.beginPath(); tctx.arc(tx, ty, 4, 0, Math.PI*2); tctx.fill();
+                
+                tctx.fillStyle = '#e2e8f0';
+                tctx.font = '9px monospace';
+                tctx.fillText(node.id, tx + 8, ty + 3);
+            });
+            
+            tctx.fillStyle = '#06b6d4';
+            const sx = topCanvas.width/2 + Math.cos(Date.now()/3000) * (topCanvas.width/3);
+            const sy2 = topCanvas.height/2 + Math.sin(Date.now()/2500) * (topCanvas.height/3);
+            tctx.beginPath(); tctx.arc(sx, sy2, 5, 0, Math.PI*2); tctx.fill();
+            tctx.fillText("UAV", sx + 8, sy2 + 3);
+            
+            tctx.strokeStyle = 'rgba(6,182,212,0.2)';
+            tctx.setLineDash([3, 4]);
+            tctx.beginPath(); 
+            tctx.moveTo(sx, sy2); 
+            tctx.lineTo(topCanvas.width/2, topCanvas.height/2);
+            tctx.stroke();
+            tctx.setLineDash([]);
+        }
+    }
+
+    // ── VITALS CHART ──
+    drawVitalsSparklines();
+    
+    // ── RF SPECTRUM ──
+    drawRFSpectrum();
+    
+    // ── RF PANELS ──
+    drawLoRaWaveform();
+    drawSDRSpectrum();
+    drawFreqAllocation();
+
+    requestAnimationFrame(draw);
+}
+
+function spawnPacket(x0, y0, x1, y1, color) {
+    particles.push({ x0, y0, x1, y1, progress: 0, speed: 0.012 + Math.random() * 0.006, color });
+}
+
+function showCryptoToast() {
+    if (!cryptoToast) return;
+    cryptoToast.classList.add('visible');
+    const toastText = document.getElementById('crypto-toast-text');
+    if (toastText) {
+        toastText.textContent = `🔒 ECIES packet captured (${60 + Math.floor(Math.random()*20)}B) — decrypting…`;
+    }
+    setTimeout(() => cryptoToast.classList.remove('visible'), 2800);
+}
+
+setInterval(() => { packetsThisMinute = 0; }, 60000);
+
+// ── Vitals Sparklines ──────────────────────────────────────────────
+function drawVitalsSparklines() {
+    if (!vctx || !vitalsCanvas || vitalsCanvas.width === 0) return;
+    if (vitalsHistory.bpm.length < 2) return;
+
+    const W = vitalsCanvas.width;
+    const H = vitalsCanvas.height;
+    vctx.clearRect(0, 0, W, H);
+
+    vctx.strokeStyle = 'rgba(255,255,255,0.05)';
+    vctx.lineWidth = 1;
+    for (let y = H * 0.25; y < H; y += H * 0.25) {
+        vctx.beginPath(); vctx.moveTo(0, y); vctx.lineTo(W, y); vctx.stroke();
+    }
+
+    function drawLine(data, minVal, maxVal, color) {
+        if (data.length < 2) return;
+        vctx.strokeStyle = color;
+        vctx.lineWidth = 2;
+        vctx.shadowColor = color;
+        vctx.shadowBlur = 4;
+        vctx.beginPath();
+        const step = W / (VITALS_HISTORY_MAX - 1);
+        data.forEach((val, i) => {
+            const x = i * step;
+            const normalized = (val - minVal) / (maxVal - minVal);
+            const y = H - (normalized * (H - 10)) - 5;
+            if (i === 0) vctx.moveTo(x, y);
+            else vctx.lineTo(x, y);
+        });
+        vctx.stroke();
+        vctx.shadowBlur = 0;
+    }
+
+    drawLine(vitalsHistory.bpm, 30, 180, '#ef4444');
+    drawLine(vitalsHistory.spo2, 65, 100, '#3b82f6');
+    drawLine(vitalsHistory.battery, 0, 100, '#f59e0b');
+}
+
+// ── RF Spectrum Display ────────────────────────────────────────────
+function drawRFSpectrum() {
+    if (!rfctx || !rfCanvas || rfCanvas.width === 0) return;
+
+    const W = rfCanvas.width;
+    const H = rfCanvas.height;
+    rfctx.clearRect(0, 0, W, H);
+
+    // Background grid
+    rfctx.strokeStyle = 'rgba(255,255,255,0.03)';
+    rfctx.lineWidth = 1;
+    for (let x = 0; x < W; x += 20) {
+        rfctx.beginPath(); rfctx.moveTo(x, 0); rfctx.lineTo(x, H); rfctx.stroke();
+    }
+
+    // Generate spectrum data
+    const spectrum = [];
+    for (let i = 0; i < W; i++) {
+        let amplitude = Math.random() * 10; // Noise floor
+        
+        // Add signal peaks
+        if (rfState.loraActive && Math.abs(i - W * 0.3) < 10) {
+            amplitude += 40 + Math.sin(Date.now() / 200) * 10;
+        }
+        if (rfState.aprsActive && Math.abs(i - W * 0.6) < 8) {
+            amplitude += 30 + Math.sin(Date.now() / 300) * 5;
+        }
+        
+        spectrum.push(amplitude);
+    }
+
+    // Draw spectrum
+    rfctx.strokeStyle = '#06b6d4';
+    rfctx.lineWidth = 1.5;
+    rfctx.beginPath();
+    spectrum.forEach((amp, i) => {
+        const y = H - (amp / 80 * H);
+        if (i === 0) rfctx.moveTo(i, y);
+        else rfctx.lineTo(i, y);
+    });
+    rfctx.stroke();
+
+    // Labels
+    rfctx.fillStyle = '#64748b';
+    rfctx.font = '8px monospace';
+    rfctx.fillText('RF SPECTRUM', 5, 12);
+    rfctx.fillText(formatFrequency(rfState.currentFrequency), 5, H - 5);
+    
+    if (rfState.loraActive) {
+        rfctx.fillStyle = '#06b6d4';
+        rfctx.fillText('● LoRa', W - 60, 12);
+    }
+    if (rfState.aprsActive) {
+        rfctx.fillStyle = '#10b981';
+        rfctx.fillText('● APRS', W - 60, 24);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  RF PANEL UPDATE FUNCTIONS
+// ═══════════════════════════════════════════════════════════════════
+
+function updateRFPanels() {
+    // LoRa Panel
+    if (loraStatusInd) {
+        loraStatusInd.className = `status-indicator ${rfState.loraActive ? 'active' : 'inactive'}`;
+    }
+    if (loraFreqDisplay) loraFreqDisplay.textContent = formatFrequency(rfState.currentFrequency);
+    if (loraNodesEl) loraNodesEl.textContent = rfState.meshNodeCount;
+    if (loraTxCountEl) loraTxCountEl.textContent = loraMesh.stats.totalPackets;
+    if (loraRxCountEl) loraRxCountEl.textContent = loraMesh.stats.successfulDeliveries;
+    if (loraAvgHopsEl) loraAvgHopsEl.textContent = loraMesh.packetLog.length > 0 ? 
+        (loraMesh.packetLog.reduce((sum, p) => sum + (p.hopCount || 0), 0) / loraMesh.packetLog.length).toFixed(1) : '0';
+    
+    const avgRssi = loraMesh.packetLog.length > 0 ?
+        loraMesh.packetLog.reduce((sum, p) => sum + (p.signalStrength || -70), 0) / loraMesh.packetLog.length : -70;
+    if (loraRssiEl) loraRssiEl.textContent = `${avgRssi.toFixed(0)} dBm`;
+    if (loraRssiBarEl) loraRssiBarEl.style.width = `${Math.max(0, Math.min(100, (avgRssi + 100)))}%`;
+    if (loraSnrEl) loraSnrEl.textContent = `${(8 + Math.random() * 4).toFixed(1)} dB`;
+    if (loraSfEl) loraSfEl.textContent = rfState.spreadingFactor;
+    if (loraBwEl) loraBwEl.textContent = rfState.bandwidth;
+
+    // APRS Panel
+    if (aprsStatusInd) {
+        aprsStatusInd.className = `status-indicator ${rfState.aprsActive ? 'simulated' : 'inactive'}`;
+    }
+    if (aprsFreqEl) aprsFreqEl.textContent = formatFrequency(aprsTracker.frequency);
+    if (aprsCallsignEl) aprsCallsignEl.textContent = 'N0CALL-15';
+    if (aprsTxCountEl) aprsTxCountEl.textContent = aprsTracker.stats.packetsSent;
+    if (aprsRxCountEl) aprsRxCountEl.textContent = Math.floor(aprsTracker.stats.packetsSent * 0.8);
+    if (aprsIgateEl) aprsIgateEl.textContent = rfState.aprsActive ? 'CONNECTED' : 'DISCONNECTED';
+    if (aprsIgateEl) aprsIgateEl.style.color = rfState.aprsActive ? '#10b981' : '#6b7280';
+    if (aprsDigipeaterEl) aprsDigipeaterEl.textContent = rfState.aprsActive ? 'ACTIVE' : 'STANDBY';
+
+    // SDR Panel
+    if (sdrStatusInd) {
+        sdrStatusInd.className = `status-indicator ${rfState.sdrActive ? 'active' : 'inactive'}`;
+    }
+    if (sdrCenterFreqEl) sdrCenterFreqEl.textContent = formatFrequency(sdrState.frequency);
+    if (sdrSampleRateEl) sdrSampleRateEl.textContent = `${(sdrState.sampleRate / 1e6).toFixed(1)} MSPS`;
+    if (sdrSignalsEl) sdrSignalsEl.textContent = sdrState.signals.length;
+    if (sdrDecodedEl) sdrDecodedEl.textContent = rfState.sdrSignalsDetected;
+
+    // Update RF links count in header
+    const rfLinksEl = document.getElementById('stat-rf-links');
+    if (rfLinksEl) {
+        const activeLinks = (rfState.loraActive ? 1 : 0) + (rfState.aprsActive ? 1 : 0) + (rfState.sdrActive ? 1 : 0);
+        rfLinksEl.textContent = activeLinks;
+    }
+
+    // Draw RF panel canvases
+    drawLoRaWaveform();
+    drawSDRSpectrum();
+    drawFreqAllocation();
+}
+
+function addLoRaPacketLog(message, type = 'DATA') {
+    if (!loraPacketLogEl) return;
+    const t = new Date().toLocaleTimeString();
+    const entry = document.createElement('div');
+    entry.className = 'packet-entry';
+    entry.innerHTML = `<span class="packet-time">[${t}]</span> <span class="packet-type">LoRa</span> — ${message}`;
+    loraPacketLogEl.appendChild(entry);
+    loraPacketLogEl.scrollTop = loraPacketLogEl.scrollHeight;
+    while (loraPacketLogEl.children.length > 15) loraPacketLogEl.removeChild(loraPacketLogEl.firstChild);
+}
+
+function addAPRSPacketLog(message) {
+    if (!aprsPacketLogEl) return;
+    const t = new Date().toLocaleTimeString();
+    const entry = document.createElement('div');
+    entry.className = 'packet-entry';
+    entry.innerHTML = `<span class="packet-time">[${t}]</span> <span class="packet-type aprs">APRS</span> — ${message}`;
+    aprsPacketLogEl.appendChild(entry);
+    aprsPacketLogEl.scrollTop = aprsPacketLogEl.scrollHeight;
+    while (aprsPacketLogEl.children.length > 15) aprsPacketLogEl.removeChild(aprsPacketLogEl.firstChild);
+}
+
+function addSDRPacketLog(message) {
+    if (!sdrPacketLogEl) return;
+    const t = new Date().toLocaleTimeString();
+    const entry = document.createElement('div');
+    entry.className = 'packet-entry';
+    entry.innerHTML = `<span class="packet-time">[${t}]</span> <span class="packet-type sdr">SDR</span> — ${message}`;
+    sdrPacketLogEl.appendChild(entry);
+    sdrPacketLogEl.scrollTop = sdrPacketLogEl.scrollHeight;
+    while (sdrPacketLogEl.children.length > 15) sdrPacketLogEl.removeChild(sdrPacketLogEl.firstChild);
+}
+
+// ── LoRa Waveform Drawing ──────────────────────────────────────────
+function drawLoRaWaveform() {
+    if (!loraWaveCtx || !loraWaveCanvas || loraWaveCanvas.width === 0) return;
+
+    const W = loraWaveCanvas.width;
+    const H = loraWaveCanvas.height;
+    loraWaveCtx.clearRect(0, 0, W, H);
+
+    // Background grid
+    loraWaveCtx.strokeStyle = 'rgba(255,255,255,0.03)';
+    loraWaveCtx.lineWidth = 1;
+    for (let x = 0; x < W; x += 20) {
+        loraWaveCtx.beginPath(); loraWaveCtx.moveTo(x, 0); loraWaveCtx.lineTo(x, H); loraWaveCtx.stroke();
+    }
+
+    if (!rfState.loraActive) {
+        loraWaveCtx.fillStyle = '#64748b';
+        loraWaveCtx.font = '10px monospace';
+        loraWaveCtx.fillText('LoRa INACTIVE', W/2 - 35, H/2 + 3);
+        return;
+    }
+
+    // LoRa CSS waveform
+    loraWaveCtx.strokeStyle = '#10b981';
+    loraWaveCtx.lineWidth = 2;
+    loraWaveCtx.shadowColor = '#10b981';
+    loraWaveCtx.shadowBlur = 4;
+    loraWaveCtx.beginPath();
+    
+    const chirpRate = 0.02;
+    for (let x = 0; x < W; x++) {
+        const t = (Date.now() / 1000 + x * chirpRate) % 1;
+        const freq = 0.3 + t * 0.4;
+        const y = H/2 + Math.sin(x * 0.05 + Date.now() * 0.003) * (H * 0.3) * (0.5 + 0.5 * Math.sin(t * Math.PI));
+        if (x === 0) loraWaveCtx.moveTo(x, y);
+        else loraWaveCtx.lineTo(x, y);
+    }
+    loraWaveCtx.stroke();
+    loraWaveCtx.shadowBlur = 0;
+
+    // Label
+    loraWaveCtx.fillStyle = '#10b981';
+    loraWaveCtx.font = '8px monospace';
+    loraWaveCtx.fillText(`LoRa ${rfState.spreadingFactor}`, 5, 12);
+}
+
+// ── SDR Spectrum Drawing ───────────────────────────────────────────
+function drawSDRSpectrum() {
+    if (!sdrSpectrumCtx || !sdrSpectrumCanvas || sdrSpectrumCanvas.width === 0) return;
+
+    const W = sdrSpectrumCanvas.width;
+    const H = sdrSpectrumCanvas.height;
+    sdrSpectrumCtx.clearRect(0, 0, W, H);
+
+    // Background grid
+    sdrSpectrumCtx.strokeStyle = 'rgba(255,255,255,0.03)';
+    sdrSpectrumCtx.lineWidth = 1;
+    for (let x = 0; x < W; x += 20) {
+        sdrSpectrumCtx.beginPath(); sdrSpectrumCtx.moveTo(x, 0); sdrSpectrumCtx.lineTo(x, H); sdrSpectrumCtx.stroke();
+    }
+
+    if (!rfState.sdrActive) {
+        sdrSpectrumCtx.fillStyle = '#64748b';
+        sdrSpectrumCtx.font = '10px monospace';
+        sdrSpectrumCtx.fillText('SDR INACTIVE', W/2 - 35, H/2 + 3);
+        return;
+    }
+
+    // Generate spectrum with signals
+    const spectrum = [];
+    for (let i = 0; i < W; i++) {
+        let amplitude = Math.random() * 8; // Noise floor
+        
+        // Add detected signal peaks
+        sdrState.signals.forEach((sig, idx) => {
+            const sigX = W * 0.3 + idx * 30;
+            if (Math.abs(i - sigX) < 15) {
+                amplitude += Math.abs(sig.strength) * 0.5 + Math.sin(Date.now() / 200 + idx) * 5;
+            }
+        });
+        
+        spectrum.push(amplitude);
+    }
+
+    // Draw waterfall-style spectrum
+    sdrSpectrumCtx.strokeStyle = '#a855f7';
+    sdrSpectrumCtx.lineWidth = 1.5;
+    sdrSpectrumCtx.beginPath();
+    spectrum.forEach((amp, i) => {
+        const y = H - (amp / 100 * H);
+        if (i === 0) sdrSpectrumCtx.moveTo(i, y);
+        else sdrSpectrumCtx.lineTo(i, y);
+    });
+    sdrSpectrumCtx.stroke();
+
+    // Labels
+    sdrSpectrumCtx.fillStyle = '#a855f7';
+    sdrSpectrumCtx.font = '8px monospace';
+    sdrSpectrumCtx.fillText(`SDR ${formatFrequency(sdrState.frequency)}`, 5, 12);
+}
+
+// ── Frequency Allocation Drawing ───────────────────────────────────
+function drawFreqAllocation() {
+    if (!freqAllocCtx || !freqAllocCanvas || freqAllocCanvas.width === 0) return;
+
+    const W = freqAllocCanvas.width;
+    const H = freqAllocCanvas.height;
+    freqAllocCtx.clearRect(0, 0, W, H);
+
+    // Background grid
+    freqAllocCtx.strokeStyle = 'rgba(255,255,255,0.03)';
+    freqAllocCtx.lineWidth = 1;
+    for (let x = 0; x < W; x += 20) {
+        freqAllocCtx.beginPath(); freqAllocCtx.moveTo(x, 0); freqAllocCtx.lineTo(x, H); freqAllocCtx.stroke();
+    }
+
+    // Draw frequency bands
+    const bands = [
+        { start: 0.05, end: 0.25, color: '#10b981', label: 'LoRa 915', active: rfState.loraActive },
+        { start: 0.35, end: 0.45, color: '#f59e0b', label: 'APRS 144', active: rfState.aprsActive },
+        { start: 0.55, end: 0.65, color: '#a855f7', label: 'SDR 433', active: rfState.sdrActive },
+        { start: 0.8, end: 0.95, color: '#3b82f6', label: 'HF 7MHz', active: false },
+    ];
+
+    bands.forEach(band => {
+        const x1 = W * band.start;
+        const x2 = W * band.end;
+        
+        freqAllocCtx.fillStyle = band.active ? band.color + '33' : 'rgba(255,255,255,0.03)';
+        freqAllocCtx.fillRect(x1, 10, x2 - x1, H - 20);
+        
+        freqAllocCtx.strokeStyle = band.active ? band.color : 'rgba(255,255,255,0.1)';
+        freqAllocCtx.lineWidth = band.active ? 2 : 1;
+        freqAllocCtx.strokeRect(x1, 10, x2 - x1, H - 20);
+
+        if (band.active) {
+            // Active indicator pulse
+            freqAllocCtx.fillStyle = band.color;
+            freqAllocCtx.shadowColor = band.color;
+            freqAllocCtx.shadowBlur = 6;
+            freqAllocCtx.fillRect(x1, H - 6, x2 - x1, 3);
+            freqAllocCtx.shadowBlur = 0;
+        }
+
+        freqAllocCtx.fillStyle = band.active ? band.color : '#64748b';
+        freqAllocCtx.font = '7px monospace';
+        freqAllocCtx.fillText(band.label, x1 + 5, 22);
+    });
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  EVENT HANDLERS
+// ═══════════════════════════════════════════════════════════════════
+
+// Trigger disaster
+document.getElementById('btn-trigger-disaster').addEventListener('click', () => {
+    if (systemState !== 'DORMANT') {
+        addLog('[System] Already active. Cell Broadcast ignored.', 'log-line');
+        return;
+    }
+    systemState = 'VIGILANCE';
+    addLog('[Baseband] ⚡ Cell Broadcast GEOFENCED_CRITICAL_ALERT intercepted.', 'log-danger');
+    addLog('[Kernel] Doze Mode bypassed. High-Vigilance subsystem awake.', 'log-success');
+    addLog('[Barometer] P_start locked at 1013.25 hPa.', 'log-success');
+    addLog('[WearOS] Bridge connecting to biometric stream…', 'log-success');
+
+    // Initialize RF systems
+    addLog('[RF] Initializing radio communication systems…', 'log-success');
+    initLoRaMesh();
+    initAPRS();
+    initSDR();
+    
+    setTimeout(() => {
+        activateLoRaMesh();
+        activateAPRS();
+        activateSDR();
+        addLog('[RF] All radio systems activated', 'log-success');
+    }, 1500);
+
+    // Start 30-min countdown
+    vigilanceSecs = 1800;
+    clearInterval(timerInterval);
+    timerInterval = setInterval(() => {
+        if (vigilanceSecs > 0) {
+            vigilanceSecs--;
+            const m = Math.floor(vigilanceSecs / 60).toString().padStart(2, '0');
+            const s = (vigilanceSecs % 60).toString().padStart(2, '0');
+            document.getElementById('vigilance-timer').textContent = `${m}:${s}`;
+        } else {
+            clearInterval(timerInterval);
+            document.getElementById('vigilance-timer').textContent = 'EXPIRED';
+            addLog('[System] Vigilance window expired.', 'log-alert');
+        }
+    }, 1000);
+
+    // Ephemeral ID rotation
+    setInterval(() => {
+        if (systemState !== 'DORMANT') {
+            ephemeralId = randomHex(4);
+            NODES.forEach(n => { n.id = randomHex(4); });
+            addLog(`[StrongBox] MAC + Ephemeral ID rotated → ${ephemeralId}`, 'log-line');
+        }
+    }, ID_ROTATE_MS);
+
+    updateUI();
+});
+
+// Reset
+document.getElementById('btn-reset').addEventListener('click', () => {
+    systemState = 'DORMANT';
+    battery = 100; watchOnBody = true; bpm = 72; spo2 = 98;
+    pressureTrapped = 101325; lastTouchTime = 0; activeSOS = false;
+    relayActive = false; autoDrain = false; waves = []; particles = [];
+    packetsThisMinute = 0; packetCount = 0;
+    
+    // Reset RF state
+    rfState.loraActive = false;
+    rfState.aprsActive = false;
+    rfState.sdrActive = false;
+    rfState.sdrSignalsDetected = 0;
+
+    clearInterval(timerInterval);
+    clearInterval(drainInterval);
+
+    document.getElementById('control-battery').value = 100;
+    document.getElementById('val-battery').textContent = '100%';
+    document.getElementById('control-wearable-body').checked = true;
+    document.getElementById('control-bpm').value = 72;
+    document.getElementById('val-bpm').textContent = '72 BPM';
+    document.getElementById('control-spo2').value = 98;
+    document.getElementById('val-spo2').textContent = '98%';
+    document.getElementById('control-pressure').value = 101325;
+    document.getElementById('val-pressure').textContent = '1013.25 hPa';
+    document.getElementById('control-relay-active').checked = false;
+    document.getElementById('control-auto-drain').checked = false;
+    document.getElementById('vigilance-timer').textContent = '--:--';
+    document.getElementById('stat-ppm').textContent = '0';
+
+    // Reset RF status elements
+    if (loraStatusEl) { loraStatusEl.textContent = 'OFFLINE'; loraStatusEl.style.color = '#ef4444'; }
+    if (aprsStatusEl) { aprsStatusEl.textContent = 'OFFLINE'; aprsStatusEl.style.color = '#ef4444'; }
+    if (sdrStatusEl) { sdrStatusEl.textContent = 'OFFLINE'; sdrStatusEl.style.color = '#ef4444'; }
+    
+    // Reset RF panel status indicators
+    if (loraStatusInd) loraStatusInd.className = 'status-indicator inactive';
+    if (aprsStatusInd) aprsStatusInd.className = 'status-indicator inactive';
+    if (sdrStatusInd) sdrStatusInd.className = 'status-indicator inactive';
+
+    resetECIESBytes();
+    resetDecryptedPanel();
+    addLog('[System] Reset complete. DORMANT state.', 'log-line');
+    addLoRaPacketLog('System reset — LoRa offline');
+    addAPRSPacketLog('System reset — APRS offline');
+    addSDRPacketLog('System reset — SDR offline');
+    updateUI();
+});
+
+// Auto-drain
+document.getElementById('control-auto-drain').addEventListener('change', e => {
+    autoDrain = e.target.checked;
+    clearInterval(drainInterval);
+    if (autoDrain) {
+        drainInterval = setInterval(() => {
+            if (systemState !== 'DORMANT' && battery > 1) {
+                battery = Math.max(1, battery - 1);
+                document.getElementById('control-battery').value = battery;
+                document.getElementById('val-battery').textContent = `${battery}%`;
+                updateUI();
+            }
+        }, 3000);
+        addLog('[PowerMgr] Auto-drain enabled.', 'log-alert');
+    }
+});
+
+// Sliders
+document.getElementById('control-battery').addEventListener('input', e => {
+    battery = parseInt(e.target.value);
+    document.getElementById('val-battery').textContent = `${battery}%`;
+    updateUI();
+});
+
+document.getElementById('control-wearable-body').addEventListener('change', e => {
+    watchOnBody = e.target.checked;
+    addLog(`[WearOS] PPG on-body: ${watchOnBody ? '✓ ATTACHED' : '✗ DETACHED'}`, 'log-line');
+    updateUI();
+});
+
+document.getElementById('control-bpm').addEventListener('input', e => {
+    bpm = parseInt(e.target.value);
+    document.getElementById('val-bpm').textContent = `${bpm} BPM`;
+    updateUI();
+});
+
+document.getElementById('control-spo2').addEventListener('input', e => {
+    spo2 = parseInt(e.target.value);
+    document.getElementById('val-spo2').textContent = `${spo2}%`;
+    updateUI();
+});
+
+document.getElementById('control-pressure').addEventListener('input', e => {
+    pressureTrapped = parseInt(e.target.value);
+    document.getElementById('val-pressure').textContent = `${(pressureTrapped / 100).toFixed(2)} hPa`;
+    updateUI();
+});
+
+document.getElementById('control-relay-active').addEventListener('change', e => {
+    relayActive = e.target.checked;
+    addLog(relayActive
+        ? `[Relay] Multi-hop proxy active.`
+        : `[Relay] Proxy offline.`, relayActive ? 'log-alert' : 'log-line');
+    updateUI();
+});
+
+// SOS Tap
+document.getElementById('btn-trigger-tap').addEventListener('click', () => {
+    if (systemState === 'DORMANT') { addLog('[System] DORMANT — tap ignored.', 'log-line'); return; }
+    activeSOS = true;
+    addLog('[WearOS] 3-TAP SOS PATTERN RECOGNIZED!', 'log-success');
+    addLog('[Framework] Priority flag → CONSCIOUS_ACTIVE_SOS.', 'log-danger');
+    addLoRaPacketLog('SOS beacon transmitted on all frequencies');
+    addAPRSPacketLog('SOS beacon transmitted');
+    addSDRPacketLog('SOS signal detected');
+
+    for (let i = 0; i < 6; i++) {
+        setTimeout(() => {
+            waves.push({ x: canvas.width * NODES[0].x, y: canvas.height * NODES[0].y,
+                         r: 5, color: '#ef4444', maxR: 350, speed: 4 + i * 0.4 });
+        }, i * 250);
+    }
+    updateUI();
+    setTimeout(() => {
+        activeSOS = false;
+        addLog('[WearOS] SOS timeout. Returning to passive.', 'log-line');
+        updateUI();
+    }, 15000);
+});
+
+// Screen touch
+document.getElementById('btn-touch-interaction').addEventListener('click', () => {
+    if (systemState === 'DORMANT') { addLog('[System] DORMANT — touch ignored.', 'log-line'); return; }
+    lastTouchTime = Date.now();
+    addLog('[AUEF] Screen touch registered. IPU recalculated.', 'log-success');
+    updateUI();
+});
+
+// Tabs
+document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
+        btn.classList.add('active');
+        document.getElementById(btn.dataset.tab).classList.remove('hidden');
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+//  INITIALIZATION
+// ═══════════════════════════════════════════════════════════════════
+
+// Vitals sampling
+setInterval(() => {
+    if (systemState === 'DORMANT' || systemState === 'ORPHAN') return;
+    vitalsHistory.bpm.push(bpm + (Math.random() - 0.5) * 4);
+    vitalsHistory.spo2.push(spo2 + (Math.random() - 0.5) * 1.5);
+    vitalsHistory.battery.push(battery);
+    if (vitalsHistory.bpm.length > VITALS_HISTORY_MAX) {
+        vitalsHistory.bpm.shift();
+        vitalsHistory.spo2.shift();
+        vitalsHistory.battery.shift();
+    }
+    
+    const depth = Math.abs(calcDeltaH(pressureTrapped));
+    envState.temp = Math.max(12, 22 - depth * 0.4 + (Math.random() - 0.5) * 0.3);
+    envState.light = Math.max(0, Math.min(50, 50 - depth * 3 + (Math.random() - 0.5) * 2));
+    envState.mic = activeSOS ? 70 + Math.random() * 15 : (Math.random() < 0.1 ? 20 + Math.random() * 10 : 5 + Math.random() * 8);
+    envState.tilt = Math.min(90, depth * 2.5 + (Math.random() - 0.5) * 3);
+    
+    // Refresh telemetry panels with the latest samples
+    updateVitalsPanel();
+    updateEnvironPanel();
+}, 1000);
+
+// Vitals panel update
+function updateVitalsPanel() {
+    const isActive = systemState !== 'DORMANT' && systemState !== 'ORPHAN';
+    const statusEl = document.getElementById('vitals-status');
+    if (statusEl) {
+        statusEl.textContent = isActive ? 'RECORDING' : 'OFFLINE';
+        statusEl.style.color = isActive ? 'var(--danger)' : 'var(--muted)';
+        statusEl.style.borderColor = isActive ? 'var(--danger)' : 'var(--muted)';
+    }
+    if (!isActive) return;
+
+    const bpmArr = vitalsHistory.bpm;
+    const bpmTrendEl = document.getElementById('vitals-bpm-trend');
+    if (bpmTrendEl && bpmArr.length >= 5) {
+        const recent = bpmArr.slice(-5);
+        const older  = bpmArr.slice(-10, -5);
+        if (older.length > 0) {
+            const avgRecent = recent.reduce((a,b) => a+b, 0) / recent.length;
+            const avgOlder  = older.reduce((a,b) => a+b, 0) / older.length;
+            const diff = avgRecent - avgOlder;
+            if (diff > 3) { bpmTrendEl.textContent = `${Math.round(avgRecent)} ↑ RISING`; bpmTrendEl.style.color = '#ef4444'; }
+            else if (diff < -3) { bpmTrendEl.textContent = `${Math.round(avgRecent)} ↓ FALLING`; bpmTrendEl.style.color = '#f59e0b'; }
+            else { bpmTrendEl.textContent = `${Math.round(avgRecent)} → STABLE`; bpmTrendEl.style.color = '#10b981'; }
+        } else {
+            bpmTrendEl.textContent = `${Math.round(recent[recent.length-1])} ...`;
+        }
+    }
+
+    const spo2Arr = vitalsHistory.spo2;
+    const spo2TrendEl = document.getElementById('vitals-spo2-trend');
+    if (spo2TrendEl && spo2Arr.length >= 5) {
+        const recent = spo2Arr.slice(-5);
+        const avgRecent = recent.reduce((a,b) => a+b, 0) / recent.length;
+        if (avgRecent < 90) { spo2TrendEl.textContent = `${avgRecent.toFixed(1)}% ⚠ CRITICAL`; spo2TrendEl.style.color = '#ef4444'; }
+        else if (avgRecent < 95) { spo2TrendEl.textContent = `${avgRecent.toFixed(1)}% ↓ LOW`; spo2TrendEl.style.color = '#f59e0b'; }
+        else { spo2TrendEl.textContent = `${avgRecent.toFixed(1)}% → NORMAL`; spo2TrendEl.style.color = '#10b981'; }
+    }
+
+    const timeEl = document.getElementById('vitals-time-trapped');
+    if (timeEl && trappedSince > 0) {
+        const elapsed = Math.floor((Date.now() - trappedSince) / 1000);
+        const h = Math.floor(elapsed / 3600).toString().padStart(2, '0');
+        const m = Math.floor((elapsed % 3600) / 60).toString().padStart(2, '0');
+        const s = (elapsed % 60).toString().padStart(2, '0');
+        timeEl.textContent = `${h}:${m}:${s}`;
+    }
+
+    const etaEl = document.getElementById('vitals-battery-eta');
+    if (etaEl) {
+        if (autoDrain && battery > 1) {
+            const hoursLeft = (battery / (1/3)) / 3600;
+            etaEl.textContent = `~${(hoursLeft * 3600 / 60).toFixed(0)} min`;
+            etaEl.style.color = battery < 20 ? '#ef4444' : battery < 40 ? '#f59e0b' : 'var(--primary)';
+        } else {
+            etaEl.textContent = autoDrain ? 'DEPLETED' : 'STATIC';
+            etaEl.style.color = 'var(--muted)';
+        }
+    }
+}
+
+// Environment panel update
+function updateEnvironPanel() {
+    const isActive = systemState !== 'DORMANT' && systemState !== 'ORPHAN';
+    if (!isActive) {
+        ['env-temp','env-light','env-mic','env-tilt'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = '—';
+        });
+        const ctEl = document.getElementById('collapse-type');
+        if (ctEl) { ctEl.textContent = 'UNKNOWN'; ctEl.className = 'collapse-type-badge'; }
+        const cdEl = document.getElementById('collapse-desc');
+        if (cdEl) cdEl.textContent = 'Awaiting accelerometer data...';
+        const apFill = document.getElementById('air-pocket-fill');
+        if (apFill) apFill.style.width = '0%';
+        const apVal = document.getElementById('air-pocket-val');
+        if (apVal) apVal.textContent = '—';
+        return;
+    }
+
+    const tempEl = document.getElementById('env-temp');
+    if (tempEl) {
+        tempEl.textContent = `${envState.temp.toFixed(1)}°C`;
+        tempEl.style.color = envState.temp < 16 ? '#3b82f6' : envState.temp > 35 ? '#ef4444' : '#10b981';
+    }
+    const lightEl = document.getElementById('env-light');
+    if (lightEl) {
+        lightEl.textContent = `${envState.light.toFixed(0)} lux`;
+        lightEl.style.color = envState.light < 5 ? '#ef4444' : envState.light < 20 ? '#f59e0b' : '#10b981';
+    }
+    const micEl = document.getElementById('env-mic');
+    if (micEl) {
+        const micLabel = envState.mic > 50 ? 'VOICE/TAP' : envState.mic > 15 ? 'AMBIENT' : 'SILENT';
+        micEl.textContent = `${envState.mic.toFixed(0)} dB (${micLabel})`;
+        micEl.style.color = envState.mic > 50 ? '#10b981' : envState.mic > 15 ? '#f59e0b' : '#ef4444';
+    }
+    const tiltEl = document.getElementById('env-tilt');
+    if (tiltEl) {
+        tiltEl.textContent = `${envState.tilt.toFixed(1)}°`;
+        tiltEl.style.color = envState.tilt > 45 ? '#ef4444' : envState.tilt > 20 ? '#f59e0b' : '#10b981';
+    }
+
+    const depth = Math.abs(calcDeltaH(pressureTrapped));
+    const ctEl = document.getElementById('collapse-type');
+    const cdEl = document.getElementById('collapse-desc');
+    if (ctEl && cdEl) {
+        if (envState.tilt > 50) {
+            ctEl.textContent = 'PANCAKE';
+            ctEl.className = 'collapse-type-badge type-pancake';
+            cdEl.textContent = 'Floors collapsed flat.';
+        } else if (envState.tilt > 20) {
+            ctEl.textContent = 'LEAN-TO';
+            ctEl.className = 'collapse-type-badge type-leanto';
+            cdEl.textContent = 'Angled collapse. Possible void spaces.';
+        } else {
+            ctEl.textContent = 'V-SHAPE';
+            ctEl.className = 'collapse-type-badge type-vshape';
+            cdEl.textContent = 'Best survival probability.';
+        }
+    }
+
+    const airPocketScore = Math.min(100, Math.max(0, envState.light * 1.5 + (100 - envState.tilt) * 0.3 + (envState.mic > 15 ? 15 : 0)));
+    const apFill = document.getElementById('air-pocket-fill');
+    const apVal = document.getElementById('air-pocket-val');
+    if (apFill) apFill.style.width = `${airPocketScore}%`;
+    if (apVal) {
+        const label = airPocketScore > 60 ? 'GOOD' : airPocketScore > 30 ? 'MODERATE' : 'CRITICAL';
+        apVal.textContent = `${airPocketScore.toFixed(0)}% (${label})`;
+        apVal.style.color = airPocketScore > 60 ? '#10b981' : airPocketScore > 30 ? '#f59e0b' : '#ef4444';
+    }
+}
+
+// ── Kickstart ──────────────────────────────────────────────────────
+draw();
+updateUI();
+updateVitalsPanel();
+updateEnvironPanel();
+addLog('[AMRF v2.0] Simulation loaded. Press ⚡ TRIGGER P-WAVE to begin.', 'log-success');
+addLog('[RF] LoRa + APRS + SDR modules ready.', 'log-success');
+addLoRaPacketLog('LoRa mesh module initialized');
+addAPRSPacketLog('APRS protocol handler initialized');
+addSDRPacketLog('SDR receiver module initialized');
+updateRFPanels();
+
+
+================================================================================
+FIN DEL DOCUMENTO DEL SIMULADOR INTEGRADO v2.0
+================================================================================

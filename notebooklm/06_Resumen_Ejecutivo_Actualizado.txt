@@ -1,0 +1,38 @@
+# PROJECT LIFELINE CORE (AMRF v2.0) - Resumen Ejecutivo Actualizado (Agosto 2026)
+
+## 1. Visión General del Sistema
+Project Lifeline Core es una intranet y stack RF de comunicaciones orientada a la respuesta ante desastres. Su principio rector es operar en un entorno de **cero dependencias** externas y **cero datos inventados** (sistema honesto). Está diseñado para funcionar "off-grid" (desconectado) tras colapsos totales de infraestructura de telecomunicaciones.
+
+El ecosistema del proyecto está estructurado en 5 capas:
+- **Capa 4 (Largo alcance)**: Módems satelitales (Iridium, Swarm) o TNC de alta frecuencia (HF 1.8-30 MHz).
+- **Capa 3 (Malla Mesh terrestre)**: Nodos LoRa Sub-GHz, retransmisión cruzada (relay HTTP/UDP) y descubrimiento automático de pares.
+- **Capa 2 (Radios y SDR)**: Radioafición clásica APRS/AX.25 y receptores SDR (FM).
+- **Capa 1 (Cómputo de borde)**: Gateways basados en Raspberry/Orange Pi, Termux en Android y aplicaciones web progresivas (PWA) instalables en modo offline.
+- **Capa 0 (Sensores y Actuadores)**: Sensores biométricos (BLE), GPS/GNSS, barómetros, acelerómetros y relés para alertas tempranas.
+
+## 2. Pila Tecnológica (Tech Stack)
+Todo el sistema está implementado usando JavaScript nativo.
+- **Backend:** Node.js puro (>= v18) operando tanto en Gateways dedicados como dentro de Termux en dispositivos Android.
+- **Frontend:** HTML5, Vanilla JS, CSS puro (sin frameworks). Desplegado como PWA con Service Workers y caché offline.
+- **Pruebas:** Módulo nativo `node:test` y `node:assert`, asegurando cero dependencias de npm como Jest o Mocha.
+
+## 3. Estado de Desarrollo y Hitos Logrados (100% Core Software)
+El núcleo lógico del software (este repositorio) ha completado **todas las etapas de integración de su roadmap**, alcanzando los siguientes hitos:
+
+- **Etapa 0 - Base física (COMPLETADA):** Implementación de `radio_driver.js` para comunicarse con transceptores físicos LoRa vía Web Serial, y `ble_bridge.js` para captura de datos biométricos reales vía Web Bluetooth.
+- **Etapa 1 - Gateways de borde (COMPLETADA):** Desarrollo de instaladores de red (`install_gateway.sh`), servicios daemon en systemd, y arquitectura PWA para servir la GUI de forma aislada a los rescatistas.
+- **Etapa 2 - GNSS Dedicado (COMPLETADA):** Creación del `gnss_reader.js` con soporte para analizar nativamente tramas estándar NMEA/UBX ($GPRMC, $GPGGA, $HCHDG). Esto permite ingerir coordenadas de altísima precisión y datos de brújula magnética externa vía puerto serial, independizándose del A-GPS celular.
+- **Etapa 3 - Alerta Temprana y Actuadores (COMPLETADA):** Integración de `actuator_output.js` para alertas sísmicas (P-Wave). Capaz de disparar vibraciones intensas y notificaciones de alto nivel usando directamente la API de Android mediante Termux, o sus equivalentes nativas de Web API.
+- **Etapa 4 - Largo Alcance Satelital/HF (COMPLETADA):** Expansión del `RelayAdapter` con la clase `SlowTransportQueue`. Este gestor de colas admite comunicación sobre canales de ultra-bajo ancho de banda y latencia masiva (Satélite/HF), aportando reintentos (backoff exponencial) y liberación segura vía recepciones de ACKs de hardware.
+
+## 4. Ruteo Redundante y Mensajería (Intercomunicador Híbrido)
+Una característica distintiva del Lifeline Engine es su redundancia al rutear información crítica:
+1. La telemetría y mensajes de texto se encriptan con AES-128 y se despachan por hardware LoRa para propagarse a kilómetros.
+2. A la vez, el `RelayAdapter` hace un eco de ese paquete hacia el servidor local, el cual emplea Server-Sent Events (SSE) y peticiones POST para inyectar el mensaje a cada dispositivo o navegador conectado en la red Wi-Fi de campo (Malla cruzada HTTP/UDP).
+3. Simultáneamente, la `SlowTransportQueue` evalúa el paquete (ej. Intercomunicador táctico) y trata de pasarlo por satélite si las vías terrestres están aisladas.
+
+## 5. Trabajo Futuro (Hardware)
+Con la suite de software completamente construida y una batería de pruebas automatizadas aprobadas con éxito, las próximas misiones se desplazan al terreno del hardware y firmware periférico:
+- **Desarrollo en C/C++:** Codificar el firmware de los microcontroladores (ESP32/Heltec/RAK) para que reciban e interpreten el protocolo serial emitido por el `radio_driver.js` de nuestro Core, y lo modulen hacia el aire usando los chips SX1276/SX1262.
+- **Construcción Off-Grid:** Ensamblaje físico de repetidores terrestres con controladores de carga solar y celdas de batería LiFePO4 para despliegues desatendidos.
+- **Pruebas de Campo:** Validar la topología con módems satelitales SBD y receptores GNSS físicos en zonas sin cobertura celular.

@@ -1,0 +1,23 @@
+{
+  "name": "project-lifeline-core",
+  "version": "2.0.1",
+  "description": "Project Lifeline Core - RF stack (LoRa/APRS/SDR) + AMRF simulators (v1.2/v2.0) for disaster response intranet",
+  "scripts": {
+    "test": "node --test \"test/*.test.js\"",
+    "test:radio": "node --test \"test/packet_encoder.test.js\" \"test/aprs.test.js\" \"test/lora.test.js\" \"test/frequency.test.js\" \"test/sdr.test.js\" \"test/gnss_reader.test.js\" \"test/actuator_output.test.js\"",
+    "test:sim": "node --test \"test/core_math.test.js\" \"test/slow_transport.test.js\"",
+    "test:server": "node --test \"test/server.test.js\"",
+    "test:integration": "node --test \"test/integration.test.js\""
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT",
+  "keywords": ["rf", "lora", "aprs", "sdr", "disaster", "emergency", "amateur-radio", "open-source"],
+  "files": [
+    "LICENSE",
+    "radio/",
+    "simulation/",
+    "test/"
+  ]
+}

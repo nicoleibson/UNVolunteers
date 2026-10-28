@@ -1,0 +1,2573 @@
+================================================================================
+PROJECT LIFELINE CORE — CÓDIGO FUENTE DEL STACK DE RADIO RF
+Documento consolidado para NotebookLM
+================================================================================
+
+Este documento contiene el código fuente completo de los 5 módulos de
+comunicación por radiofrecuencia del proyecto. Cada módulo implementa
+una capa diferente del stack de comunicaciones de emergencia.
+
+
+================================================================================
+ARCHIVO 1: frequency_mgr.js
+Gestión dinámica de frecuencias, asignación de canales, regulación por región,
+y liberación de emergencia. Controla ISM, amateur y frecuencias de emergencia.
+================================================================================
+
+/**
+ * ═══════════════════════════════════════════════════════════════
+ *  PROJECT LIFELINE CORE — Frequency Manager Module v1.0
+ *  Dynamic Frequency Allocation for Disaster Response
+ * ═══════════════════════════════════════════════════════════════
+ */
+
+'use strict';
+
+/**
+ * Frequency Manager Configuration
+ */
+const FREQ_MGR_CONFIG = {
+    // Licensed emergency frequencies (MHz)
+    emergencyFrequencies: {
+        '406.025': { name: 'ELT', type: 'DISTRESS', power: 'LOW', range: 'SATELLITE' },
+        '406.028': { name: 'EPIRB', type: 'DISTRESS', power: 'LOW', range: 'SATELLITE' },
+        '406.040': { name: 'PLB', type: 'DISTRESS', power: 'LOW', range: 'SATELLITE' },
+        '121.500': { name: 'VHF-HELICOPTER', type: 'AVIATION', power: 'MEDIUM', range: '50km' },
+        '123.100': { name: 'SAR-AUX', type: 'AVIATION', power: 'MEDIUM', range: '50km' },
+    },
+    
+    // ISM bands (license-free)
+    ismBands: {
+        '433.05-434.79': { name: 'ISM-EU-433', region: 'EUROPE', power: 10, range: 2 },
+        '868.0-868.6': { name: 'ISM-EU-868', region: 'EUROPE', power: 14, range: 3 },
+        '902-928': { name: 'ISM-US-915', region: 'AMERICAS', power: 20, range: 5 },
+    },
+    
+    // Amateur radio bands (license required)
+    amateurBands: {
+        '144.0-148.0': { name: '2m-VHF', license: 'Technician+', power: 1500, range: 50 },
+        '144.390': { name: 'APRS-NA', license: 'Technician+', power: 50, range: 30 },
+        '144.800': { name: 'APRS-EU', license: 'Technician+', power: 50, range: 30 },
+        '420-450': { name: '70cm-UHF', license: 'Technician+', power: 500, range: 30 },
+    },
+    
+    // Priority levels
+    priorityLevels: {
+        CRITICAL: 1,    // Life-threatening emergencies
+        HIGH: 2,        // Active rescue operations
+        MEDIUM: 3,      // Coordination
+        LOW: 4,         // Routine communication
+    },
+};
+
+/**
+ * Frequency Allocation Class
+ * Manages dynamic frequency allocation
+ */
+class FrequencyManager {
+    constructor(config = {}) {
+        this.region = config.region || 'AMERICAS';
+        this.allocations = new Map();
+        this.activeFrequencies = new Map();
+        
+        // Statistics
+        this.stats = {
+            totalAllocations: 0,
+            activeChannels: 0,
+            collisions: 0,
+        };
+        
+        // Callbacks
+        this.onAllocation = config.onAllocation || null;
+        this.onDeallocation = config.onDeallocation || null;
+    }
+    
+    /**
+     * Request frequency allocation
+     */
+    requestFrequency(request) {
+        const {
+            requesterId,
+            type = 'DATA',
+            priority = FREQ_MGR_CONFIG.priorityLevels.MEDIUM,
+            bandwidth = 12500,
+            duration = 3600, // 1 hour default
+        } = request;
+        
+        console.log(`[FreqMgr] Allocation request from ${requesterId} (Priority: ${priority})`);
+        
+        // Find available frequency
+        const frequency = this.findAvailableFrequency(type, priority, bandwidth);
+        
+        if (!frequency) {
+            console.log('[FreqMgr] No frequencies available');
+            return null;
+        }
+        
+        // Create allocation
+        const allocation = {
+            id: this.generateAllocationId(),
+            frequency: frequency,
+            requesterId: requesterId,
+            type: type,
+            priority: priority,
+            bandwidth: bandwidth,
+            allocatedAt: Date.now(),
+            expiresAt: Date.now() + (duration * 1000),
+            isActive: true,
+        };
+        
+        // Store allocation
+        this.allocations.set(allocation.id, allocation);
+        this.activeFrequencies.set(frequency, allocation.id);
+        
+        this.stats.totalAllocations++;
+        this.stats.activeChannels++;
+        
+        console.log(`[FreqMgr] Allocated ${(frequency / 1e6).toFixed(3)} MHz to ${requesterId}`);
+        
+        if (this.onAllocation) {
+            this.onAllocation(allocation);
+        }
+        
+        return allocation;
+    }
+    
+    /**
+     * Release frequency allocation
+     */
+    releaseFrequency(allocationId) {
+        const allocation = this.allocations.get(allocationId);
+        
+        if (!allocation) {
+            console.log(`[FreqMgr] Allocation ${allocationId} not found`);
+            return false;
+        }
+        
+        allocation.isActive = false;
+        this.activeFrequencies.delete(allocation.frequency);
+        this.stats.activeChannels--;
+        
+        console.log(`[FreqMgr] Released ${(allocation.frequency / 1e6).toFixed(3)} MHz from ${allocation.requesterId}`);
+        
+        if (this.onDeallocation) {
+            this.onDeallocation(allocation);
+        }
+        
+        return true;
+    }
+    
+    /**
+     * Find available frequency based on requirements
+     */
+    findAvailableFrequency(type, priority, bandwidth) {
+        // Get available frequencies for region
+        const available = this.getAvailableFrequencies(type);
+        
+        // Sort by priority compatibility
+        const sorted = available.sort((a, b) => {
+            const aPriority = a.priority || FREQ_MGR_CONFIG.priorityLevels.LOW;
+            const bPriority = b.priority || FREQ_MGR_CONFIG.priorityLevels.LOW;
+            return aPriority - bPriority;
+        });
+        
+        // Find first available
+        for (const freq of sorted) {
+            if (!this.activeFrequencies.has(freq.frequency)) {
+                return freq.frequency;
+            }
+        }
+        
+        return null;
+    }
+    
+    /**
+     * Get available frequencies for type
+     */
+    getAvailableFrequencies(type) {
+        const frequencies = [];
+        
+        switch (type) {
+            case 'EMERGENCY':
+                // Use emergency frequencies
+                Object.keys(FREQ_MGR_CONFIG.emergencyFrequencies).forEach(freq => {
+                    frequencies.push({
+                        frequency: parseFloat(freq) * 1e6,
+                        priority: FREQ_MGR_CONFIG.priorityLevels.CRITICAL,
+                    });
+                });
+                break;
+                
+            case 'DATA':
+            case 'VOICE':
+                // Use ISM bands (license-free)
+                if (this.region === 'EUROPE') {
+                    frequencies.push(
+                        { frequency: 433.05e6, priority: 3 },
+                        { frequency: 868.0e6, priority: 3 }
+                    );
+                } else {
+                    frequencies.push(
+                        { frequency: 915e6, priority: 3 }
+                    );
+                }
+                
+                // Add amateur bands if available
+                frequencies.push(
+                    { frequency: 144.390e6, priority: 2 },
+                    { frequency: 144.800e6, priority: 2 }
+                );
+                break;
+                
+            case 'TRACKING':
+                // Use APRS frequencies
+                frequencies.push(
+                    { frequency: 144.390e6, priority: 2 },
+                    { frequency: 144.800e6, priority: 2 }
+                );
+                break;
+                
+            default:
+                // Use ISM bands
+                frequencies.push({ frequency: 915e6, priority: 3 });
+        }
+        
+        return frequencies;
+    }
+    
+    /**
+     * Generate unique allocation ID
+     */
+    generateAllocationId() {
+        return `ALLOC-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+    }
+    
+    /**
+     * Check for expired allocations
+     */
+    checkExpirations() {
+        const now = Date.now();
+        
+        this.allocations.forEach((allocation, id) => {
+            if (allocation.isActive && allocation.expiresAt < now) {
+                console.log(`[FreqMgr] Allocation expired: ${id}`);
+                this.releaseFrequency(id);
+            }
+        });
+    }
+    
+    /**
+     * Get allocation by ID
+     */
+    getAllocation(id) {
+        return this.allocations.get(id);
+    }
+    
+    /**
+     * Get all active allocations
+     */
+    getActiveAllocations() {
+        return Array.from(this.allocations.values()).filter(a => a.isActive);
+    }
+    
+    /**
+     * Get statistics
+     */
+    getStats() {
+        return {
+            ...this.stats,
+            activeChannels: this.activeFrequencies.size,
+        };
+    }
+    
+    /**
+     * Force release all allocations (emergency override)
+     */
+    emergencyOverride() {
+        console.log('[FreqMgr] EMERGENCY OVERRIDE - Releasing all allocations');
+        
+        this.allocations.forEach((allocation, id) => {
+            if (allocation.priority > FREQ_MGR_CONFIG.priorityLevels.CRITICAL) {
+                this.releaseFrequency(id);
+            }
+        });
+    }
+}
+
+/**
+ * Frequency Scanner Class
+ * Scans and monitors frequency activity
+ */
+class FrequencyScanner {
+    constructor(config = {}) {
+        this.frequencies = config.frequencies || [];
+        this.threshold = config.threshold || -80; // dB
+        this.scanInterval = config.scanInterval || 100; // ms
+        
+        this.isScanning = false;
+        this.detectedSignals = new Map();
+        
+        // Callbacks
+        this.onSignalDetected = config.onSignalDetected || null;
+    }
+    
+    /**
+     * Start scanning
+     */
+    start() {
+        this.isScanning = true;
+        console.log(`[Scanner] Scanning ${this.frequencies.length} frequencies`);
+        this.scanLoop();
+        return this;
+    }
+    
+    /**
+     * Stop scanning
+     */
+    stop() {
+        this.isScanning = false;
+        console.log('[Scanner] Stopped');
+        return this;
+    }
+    
+    /**
+     * Scan loop
+     */
+    scanLoop() {
+        if (!this.isScanning) return;
+        
+        this.frequencies.forEach(freq => {
+            // Simulate detection
+            if (Math.random() < 0.05) {
+                const signal = {
+                    frequency: freq,
+                    strength: this.threshold + Math.random() * 40,
+                    timestamp: Date.now(),
+                };
+                
+                this.detectedSignals.set(freq, signal);
+                
+                if (this.onSignalDetected) {
+                    this.onSignalDetected(signal);
+                }
+            }
+        });
+        
+        setTimeout(() => this.scanLoop(), this.scanInterval);
+    }
+    
+    /**
+     * Add frequency to scan
+     */
+    addFrequency(frequency) {
+        if (!this.frequencies.includes(frequency)) {
+            this.frequencies.push(frequency);
+        }
+        return this;
+    }
+    
+    /**
+     * Get detected signals
+     */
+    getDetectedSignals() {
+        return Array.from(this.detectedSignals.values());
+    }
+}
+
+// Export for use
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = { FrequencyManager, FrequencyScanner, FREQ_MGR_CONFIG };
+}
+
+// Browser globals
+if (typeof window !== 'undefined') {
+    window.FrequencyManager = FrequencyManager;
+    window.FrequencyScanner = FrequencyScanner;
+    window.FREQ_MGR_CONFIG = FREQ_MGR_CONFIG;
+}
+
+console.log('[Frequency Manager] Module loaded');
+
+
+================================================================================
+ARCHIVO 2: packet_encoder.js
+Codificación/decodificación de paquetes RF en formatos JSON, binario y CBOR.
+Incluye compresión LZ77, cifrado XOR, CRC-16, y builder pattern.
+================================================================================
+
+/**
+ * ═══════════════════════════════════════════════════════════════
+ *  PROJECT LIFELINE CORE — Packet Encoder Module v1.0
+ *  RF Packet Encoding/Decoding for Disaster Response
+ * ═══════════════════════════════════════════════════════════════
+ */
+
+'use strict';
+
+/**
+ * Packet Configuration
+ */
+const PACKET_CONFIG = {
+    // Packet types
+    types: {
+        BEACON: 0x01,
+        DATA: 0x02,
+        COMMAND: 0x03,
+        ACK: 0x04,
+        NACK: 0x05,
+        RELAY: 0x06,
+        EMERGENCY: 0x07,
+    },
+    
+    // Header format
+    headerSize: 16, // bytes
+    
+    // Maximum payload sizes
+    maxPayload: {
+        LORA_SF7: 51,
+        LORA_SF8: 51,
+        LORA_SF9: 115,
+        LORA_SF10: 242,
+        LORA_SF11: 242,
+        LORA_SF12: 242,
+        BLE: 251,
+        APRS: 256,
+    },
+};
+
+/**
+ * Packet Encoder Class
+ * Handles packet encoding/decoding
+ */
+class PacketEncoder {
+    constructor(config = {}) {
+        this.encoding = config.encoding || 'JSON';
+        this.compression = config.compression || 'NONE';
+        this.encryption = config.encryption || 'NONE';
+        
+        // Statistics
+        this.stats = {
+            encoded: 0,
+            decoded: 0,
+            errors: 0,
+        };
+    }
+    
+    /**
+     * Encode packet to bytes
+     */
+    encode(packet) {
+        try {
+            let encoded;
+            
+            switch (this.encoding) {
+                case 'JSON':
+                    encoded = this.encodeJSON(packet);
+                    break;
+                case 'BINARY':
+                    encoded = this.encodeBinary(packet);
+                    break;
+                case 'CBOR':
+                    encoded = this.encodeCBOR(packet);
+                    break;
+                default:
+                    encoded = this.encodeJSON(packet);
+            }
+            
+            // Apply compression
+            if (this.compression !== 'NONE') {
+                encoded = this.compress(encoded);
+            }
+            
+            // Apply encryption
+            if (this.encryption !== 'NONE') {
+                encoded = this.encrypt(encoded);
+            }
+            
+            this.stats.encoded++;
+            return encoded;
+            
+        } catch (error) {
+            this.stats.errors++;
+            throw error;
+        }
+    }
+    
+    /**
+     * Decode bytes to packet
+     */
+    decode(bytes) {
+        try {
+            let decoded = bytes;
+            
+            // Reverse encryption
+            if (this.encryption !== 'NONE') {
+                decoded = this.decrypt(decoded);
+            }
+            
+            // Reverse compression
+            if (this.compression !== 'NONE') {
+                decoded = this.decompress(decoded);
+            }
+            
+            // Decode based on format
+            let packet;
+            switch (this.encoding) {
+                case 'JSON':
+                    packet = this.decodeJSON(decoded);
+                    break;
+                case 'BINARY':
+                    packet = this.decodeBinary(decoded);
+                    break;
+                case 'CBOR':
+                    packet = this.decodeCBOR(decoded);
+                    break;
+                default:
+                    packet = this.decodeJSON(decoded);
+            }
+            
+            this.stats.decoded++;
+            return packet;
+            
+        } catch (error) {
+            this.stats.errors++;
+            throw error;
+        }
+    }
+    
+    /**
+     * Encode packet to JSON
+     */
+    encodeJSON(packet) {
+        const jsonStr = JSON.stringify(packet);
+        return this.stringToBytes(jsonStr);
+    }
+    
+    /**
+     * Decode JSON to packet
+     */
+    decodeJSON(bytes) {
+        const jsonStr = this.bytesToString(bytes);
+        return JSON.parse(jsonStr);
+    }
+    
+    /**
+     * Encode packet to binary format
+     */
+    encodeBinary(packet) {
+        const buffer = [];
+        
+        // Header
+        buffer.push(packet.type || 0x00);
+        buffer.push(packet.version || 1);
+        buffer.push(packet.flags || 0);
+        
+        // Source ID (8 bytes)
+        const sourceId = packet.sourceId || '0000000000000000';
+        for (let i = 0; i < 8; i++) {
+            buffer.push(parseInt(sourceId.slice(i * 2, i * 2 + 2), 16) || 0);
+        }
+        
+        // Destination ID (8 bytes)
+        const destId = packet.destinationId || 'FFFFFFFFFFFFFFFF';
+        for (let i = 0; i < 8; i++) {
+            buffer.push(parseInt(destId.slice(i * 2, i * 2 + 2), 16) || 0);
+        }
+        
+        // Sequence number (2 bytes)
+        const seq = packet.sequence || 0;
+        buffer.push((seq >> 8) & 0xFF);
+        buffer.push(seq & 0xFF);
+        
+        // Payload length (2 bytes)
+        const payloadBytes = this.stringToBytes(JSON.stringify(packet.payload || {}));
+        buffer.push((payloadBytes.length >> 8) & 0xFF);
+        buffer.push(payloadBytes.length & 0xFF);
+        
+        // Payload
+        buffer.push(...payloadBytes);
+        
+        // CRC (2 bytes)
+        const crc = this.calculateCRC16(buffer);
+        buffer.push((crc >> 8) & 0xFF);
+        buffer.push(crc & 0xFF);
+        
+        return buffer;
+    }
+    
+    /**
+     * Decode binary to packet
+     */
+    decodeBinary(bytes) {
+        if (bytes.length < PACKET_CONFIG.headerSize) {
+            throw new Error('Packet too short');
+        }
+        
+        let offset = 0;
+        
+        // Header
+        const type = bytes[offset++];
+        const version = bytes[offset++];
+        const flags = bytes[offset++];
+        
+        // Source ID
+        let sourceId = '';
+        for (let i = 0; i < 8; i++) {
+            sourceId += bytes[offset++].toString(16).padStart(2, '0');
+        }
+        
+        // Destination ID
+        let destId = '';
+        for (let i = 0; i < 8; i++) {
+            destId += bytes[offset++].toString(16).padStart(2, '0');
+        }
+        
+        // Sequence number
+        const sequence = (bytes[offset] << 8) | bytes[offset + 1];
+        offset += 2;
+        
+        // Payload length
+        const payloadLen = (bytes[offset] << 8) | bytes[offset + 1];
+        offset += 2;
+
+        // Verify CRC (antes de interpretar el payload)
+        const receivedCRC = (bytes[offset + payloadLen] << 8) | bytes[offset + payloadLen + 1];
+        const calculatedCRC = this.calculateCRC16(bytes.slice(0, offset + payloadLen));
+
+        if (receivedCRC !== calculatedCRC) {
+            throw new Error('CRC mismatch');
+        }
+
+        // Payload
+        const payloadBytes = bytes.slice(offset, offset + payloadLen);
+        const payload = JSON.parse(this.bytesToString(payloadBytes));
+        
+        return {
+            type,
+            version,
+            flags,
+            sourceId,
+            destinationId: destId,
+            sequence,
+            payload,
+        };
+    }
+    
+    /**
+     * Encode to CBOR (simplified)
+     */
+    encodeCBOR(packet) {
+        // Simplified CBOR encoding
+        const jsonStr = JSON.stringify(packet);
+        const bytes = this.stringToBytes(jsonStr);
+        
+        // Add CBOR major type marker
+        return [0xA0, ...bytes]; // Map type
+    }
+    
+    /**
+     * Decode CBOR (simplified)
+     */
+    decodeCBOR(bytes) {
+        // Skip CBOR header
+        const jsonBytes = bytes.slice(1);
+        return JSON.parse(this.bytesToString(jsonBytes));
+    }
+    
+    /**
+     * Compress data (LZ77-like)
+     */
+    compress(data) {
+        // Compresión LZ77 sobre bytes crudos.
+        // Los literales ≥ 0x80 (o 0x00) se escapan con prefijo 0x00 para no
+        // confundirse con los tokens de match (0x80..0xFF).
+        const compressed = [];
+        
+        let i = 0;
+        while (i < data.length) {
+            // Look for matches
+            let matchLen = 0;
+            let matchDist = 0;
+            
+            for (let j = Math.max(0, i - 255); j < i; j++) {
+                let k = 0;
+                while (i + k < data.length && data[j + k] === data[i + k]) {
+                    k++;
+                }
+                if (k > matchLen && k > 2) {
+                    matchLen = k;
+                    matchDist = i - j;
+                }
+            }
+            
+            if (matchLen > 2) {
+                // Emit match (len 3..127 + dist 0..255)
+                if (matchLen > 127) matchLen = 127;
+                compressed.push(0x80 | matchLen);
+                compressed.push(matchDist);
+                i += matchLen;
+            } else {
+                // Emit literal (escapa los que colisionan con tokens de match)
+                const b = data[i];
+                if (b >= 0x80 || b === 0x00) {
+                    compressed.push(0x00, b);
+                } else {
+                    compressed.push(b);
+                }
+                i++;
+            }
+        }
+        
+        return compressed;
+    }
+    
+    /**
+     * Decompress data
+     */
+    decompress(data) {
+        // Decompresión LZ77 (espejo de compress)
+        const output = [];
+        
+        for (let i = 0; i < data.length; i++) {
+            const byte = data[i];
+            
+            if (byte === 0x00) {
+                // Literal escapado
+                output.push(data[++i]);
+            } else if (byte & 0x80) {
+                // Match
+                const len = byte & 0x7F;
+                const dist = data[++i];
+                
+                for (let j = 0; j < len; j++) {
+                    output.push(output[output.length - dist]);
+                }
+            } else {
+                // Literal
+                output.push(byte);
+            }
+        }
+        
+        return output;
+    }
+    
+    /**
+     * Encrypt data (XOR cipher - for demo only)
+     */
+    encrypt(data) {
+        const key = 0x5A; // Simple key
+        return data.map(b => b ^ key);
+    }
+    
+    /**
+     * Decrypt data (XOR cipher - for demo only)
+     */
+    decrypt(data) {
+        return this.encrypt(data); // XOR is its own inverse
+    }
+    
+    /**
+     * Calculate CRC16
+     */
+    calculateCRC16(data) {
+        let crc = 0xFFFF;
+        
+        for (let i = 0; i < data.length; i++) {
+            crc ^= data[i] << 8;
+            for (let j = 0; j < 8; j++) {
+                if (crc & 0x8000) {
+                    crc = (crc << 1) ^ 0x1021;
+                } else {
+                    crc <<= 1;
+                }
+            }
+        }
+        
+        return crc & 0xFFFF;
+    }
+    
+    /**
+     * Convert string to bytes
+     */
+    stringToBytes(str) {
+        return Array.from(str).map(c => c.charCodeAt(0));
+    }
+    
+    /**
+     * Convert bytes to string
+     */
+    bytesToString(bytes) {
+        return String.fromCharCode(...bytes);
+    }
+    
+    /**
+     * Get statistics
+     */
+    getStats() {
+        return { ...this.stats };
+    }
+}
+
+/**
+ * Packet Builder Class
+ * Helper for building packets
+ */
+class PacketBuilder {
+    constructor() {
+        this.packet = {
+            type: PACKET_CONFIG.types.DATA,
+            version: 1,
+            flags: 0,
+            sourceId: '0000000000000000',
+            destinationId: 'FFFFFFFFFFFFFFFF',
+            sequence: 0,
+            payload: {},
+        };
+    }
+    
+    /**
+     * Set packet type
+     */
+    setType(type) {
+        this.packet.type = type;
+        return this;
+    }
+    
+    /**
+     * Set source ID
+     */
+    setSource(id) {
+        this.packet.sourceId = id;
+        return this;
+    }
+    
+    /**
+     * Set destination ID
+     */
+    setDestination(id) {
+        this.packet.destinationId = id;
+        return this;
+    }
+    
+    /**
+     * Set sequence number
+     */
+    setSequence(seq) {
+        this.packet.sequence = seq;
+        return this;
+    }
+    
+    /**
+     * Set payload
+     */
+    setPayload(payload) {
+        this.packet.payload = payload;
+        return this;
+    }
+    
+    /**
+     * Build packet
+     */
+    build() {
+        return { ...this.packet };
+    }
+    
+    /**
+     * Reset builder
+     */
+    reset() {
+        this.packet = {
+            type: PACKET_CONFIG.types.DATA,
+            version: 1,
+            flags: 0,
+            sourceId: '0000000000000000',
+            destinationId: 'FFFFFFFFFFFFFFFF',
+            sequence: 0,
+            payload: {},
+        };
+        return this;
+    }
+}
+
+// Export for use
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = { PacketEncoder, PacketBuilder, PACKET_CONFIG };
+}
+
+// Browser globals
+if (typeof window !== 'undefined') {
+    window.PacketEncoder = PacketEncoder;
+    window.PacketBuilder = PacketBuilder;
+    window.PACKET_CONFIG = PACKET_CONFIG;
+}
+
+console.log('[Packet Encoder] Module loaded');
+
+
+================================================================================
+ARCHIVO 3: aprs_protocol.js
+Protocolo APRS (Automatic Packet Reporting System) sobre tramas AX.25.
+Tracking GPS, mensajería, telemetría, beacons de emergencia para rescate.
+================================================================================
+
+/**
+ * ═══════════════════════════════════════════════════════════════
+ *  PROJECT LIFELINE CORE — APRS Protocol Module v1.0
+ *  Automatic Packet Reporting System for Rescue Operations
+ * ═══════════════════════════════════════════════════════════════
+ */
+
+'use strict';
+
+/**
+ * APRS Configuration
+ * Standard APRS parameters for emergency operations
+ */
+const APRS_CONFIG = {
+    // APRS frequencies (VHF 2m band)
+    frequencies: {
+        Americas: 144.390,    // North America
+        Europe: 144.800,      // Europe
+        Japan: 144.640,       // Japan
+        Australia: 145.175,   // Australia
+        Argentina: 144.930,   // Argentina
+    },
+    
+    // Baud rates
+    baudRates: {
+        standard: 1200,
+        highSpeed: 9600,
+    },
+    
+    // AX.25 frame types
+    frameTypes: {
+        UI: 0x03,      // Unnumbered Information
+        I: 0x00,       // Information
+        S: 0x01,       // Supervisory
+    },
+    
+    // APRS data types
+    dataTypes: {
+        POSITION: '!',
+        MESSAGE: ':',
+        STATUS: '>',
+        TELEMETRY: 'T',
+        WEATHER: '_',
+        OBJECT: ';',
+        ITEM: ')',
+    },
+    
+    // Symbol codes
+    symbols: {
+        TRAPPED: '[',      // Person in distress
+        RESCUE: '/',       // Rescue vehicle
+        MEDICAL: '+',      // Medical
+        COMMAND: 'C',      // Command post
+        RELAY: 'R',        // Relay station
+        HELICOPTER: 'H',   // Helicopter
+    },
+};
+
+/**
+ * AX.25 Frame Class
+ * Handles AX.25 packet encoding/decoding
+ */
+class AX25Frame {
+    constructor(config = {}) {
+        this.sourceCallsign = config.sourceCallsign || 'N0CALL';
+        this.sourceSSID = config.sourceSSID || 0;
+        this.destinationCallsign = config.destinationCallsign || 'APRS';
+        this.destinationSSID = config.destinationSSID || 0;
+        this.repeaterPath = config.repeaterPath || ['WIDE1-1', 'WIDE2-1'];
+        this.infoField = config.infoField || '';
+        this.control = config.control || APRS_CONFIG.frameTypes.UI;
+        this.protocol = config.protocol || 0xF0; // No layer 3
+    }
+    
+    /**
+     * Encode frame to bytes
+     */
+    encode() {
+        const frame = [];
+        
+        // Destination address (7 bytes)
+        frame.push(...this.encodeAddress(this.destinationCallsign, this.destinationSSID, false));
+        
+        // Source address (7 bytes) — last address only when there is no repeater path
+        frame.push(...this.encodeAddress(this.sourceCallsign, this.sourceSSID, this.repeaterPath.length === 0));
+        
+        // Repeater path (7 bytes each)
+        this.repeaterPath.forEach((path, index) => {
+            const isLast = index === this.repeaterPath.length - 1;
+            const callsign = path.split('-')[0];
+            const ssid = parseInt(path.split('-')[1]) || 0;
+            frame.push(...this.encodeAddress(callsign, ssid, isLast));
+        });
+        
+        // Control field
+        frame.push(this.control);
+        
+        // Protocol ID
+        frame.push(this.protocol);
+        
+        // Info field
+        const infoBytes = this.stringToBytes(this.infoField);
+        frame.push(...infoBytes);
+        
+        // FCS (Frame Check Sequence)
+        const fcs = this.calculateFCS(frame);
+        frame.push(fcs & 0xFF);
+        frame.push((fcs >> 8) & 0xFF);
+        
+        return frame;
+    }
+    
+    /**
+     * Decode frame from bytes
+     */
+    static decode(bytes) {
+        if (bytes.length < 16) {
+            throw new Error('Frame too short');
+        }
+        
+        let offset = 0;
+        
+        // Decode destination
+        const destination = this.decodeAddress(bytes.slice(offset, offset + 7));
+        offset += 7;
+        
+        // Decode source
+        const source = this.decodeAddress(bytes.slice(offset, offset + 7));
+        offset += 7;
+        
+        // Decode repeater path
+        // The extension bit (0x01) lives in the LAST byte of each address (SSID byte).
+        // The address field ends when the previously-read address carries that bit.
+        const repeaterPath = [];
+        
+        while (!(bytes[offset - 1] & 0x01) && offset + 7 <= bytes.length - 2) {
+            const repeater = this.decodeAddress(bytes.slice(offset, offset + 7));
+            repeaterPath.push(`${repeater.callsign}-${repeater.ssid}`);
+            offset += 7;
+        }
+        
+        // Control field
+        const control = bytes[offset++];
+        
+        // Protocol ID
+        const protocol = bytes[offset++];
+        
+        // Info field (everything until FCS)
+        const infoBytes = bytes.slice(offset, bytes.length - 2);
+        const infoField = String.fromCharCode(...infoBytes);
+        
+        return new AX25Frame({
+            sourceCallsign: source.callsign,
+            sourceSSID: source.ssid,
+            destinationCallsign: destination.callsign,
+            destinationSSID: destination.ssid,
+            repeaterPath: repeaterPath,
+            control: control,
+            protocol: protocol,
+            infoField: infoField,
+        });
+    }
+    
+    /**
+     * Encode address field
+     */
+    encodeAddress(callsign, ssid, isLast) {
+        const address = [];
+        const paddedCallsign = callsign.padEnd(6, ' ').toUpperCase();
+        
+        for (let i = 0; i < 6; i++) {
+            address.push(paddedCallsign.charCodeAt(i) << 1);
+        }
+        
+        // SSID byte: reserved bits + SSID + extension bit
+        const ssidByte = 0x60 | (ssid << 1) | (isLast ? 0x01 : 0x00);
+        address.push(ssidByte);
+        
+        return address;
+    }
+    
+    /**
+     * Decode address field
+     */
+    static decodeAddress(bytes) {
+        let callsign = '';
+        for (let i = 0; i < 6; i++) {
+            const char = bytes[i] >> 1;
+            if (char !== 32) { // Skip spaces
+                callsign += String.fromCharCode(char);
+            }
+        }
+        
+        const ssid = (bytes[6] >> 1) & 0x0F;
+        
+        return { callsign: callsign.trim(), ssid };
+    }
+    
+    /**
+     * Calculate Frame Check Sequence (FCS)
+     */
+    calculateFCS(data) {
+        let fcs = 0xFFFF;
+        
+        for (let i = 0; i < data.length; i++) {
+            fcs ^= data[i];
+            for (let j = 0; j < 8; j++) {
+                if (fcs & 0x0001) {
+                    fcs = (fcs >> 1) ^ 0x8408;
+                } else {
+                    fcs >>= 1;
+                }
+            }
+        }
+        
+        return fcs ^ 0xFFFF;
+    }
+    
+    /**
+     * Convert string to bytes
+     */
+    stringToBytes(str) {
+        return Array.from(str).map(c => c.charCodeAt(0));
+    }
+    
+    /**
+     * Get frame as hex string
+     */
+    toHexString() {
+        return this.encode().map(b => b.toString(16).padStart(2, '0')).join(' ');
+    }
+}
+
+/**
+ * APRS Packet Class
+ * Handles APRS-specific packet creation
+ */
+class APRSPacket {
+    constructor(config = {}) {
+        this.callsign = config.callsign || 'N0CALL';
+        this.ssid = config.ssid || 0;
+        this.symbol = config.symbol || APRS_CONFIG.symbols.TRAPPED;
+        this.symbolTable = config.symbolTable || '/';
+        
+        // Position
+        this.latitude = config.latitude || 0;
+        this.longitude = config.longitude || 0;
+        this.altitude = config.altitude || 0;
+        this.course = config.course || 0;
+        this.speed = config.speed || 0;
+        
+        // Message
+        this.message = config.message || '';
+        this.messageType = config.messageType || 'POSITION';
+    }
+    
+    /**
+     * Create position report
+     */
+    createPositionReport() {
+        const lat = this.encodeLatitude(this.latitude);
+        const lon = this.encodeLongitude(this.longitude);
+        
+        // Compressed position format
+        const data = `${this.symbolTable}${lat}${this.symbol}${lon}`;
+        
+        return this.createAPRSPacket('!', data);
+    }
+    
+    /**
+     * Create position report with timestamp
+     */
+    createPositionReportWithTimestamp() {
+        const timestamp = this.encodeTimestamp(Date.now());
+        const lat = this.encodeLatitude(this.latitude);
+        const lon = this.encodeLongitude(this.longitude);
+        
+        const data = `${timestamp}${lat}${this.symbol}${lon}`;
+        
+        return this.createAPRSPacket('/', data);
+    }
+    
+    /**
+     * Create status report
+     */
+    createStatusReport(statusText) {
+        const data = statusText;
+        return this.createAPRSPacket('>', data);
+    }
+    
+    /**
+     * Create message
+     */
+    createMessage(addressee, message) {
+        const paddedAddressee = addressee.padEnd(9, ' ');
+        const data = `${paddedAddressee}:${message}`;
+        return this.createAPRSPacket(':', data);
+    }
+    
+    /**
+     * Create telemetry report
+     */
+    createTelemetryReport(channel, value) {
+        const data = `#${channel.toString().padStart(3, '0')},${value}`;
+        return this.createAPRSPacket('T', data);
+    }
+    
+    /**
+     * Create APRS object
+     */
+    createObject(name, latitude, longitude, alive = true) {
+        const lat = this.encodeLatitude(latitude);
+        const lon = this.encodeLongitude(longitude);
+        const killByte = alive ? '*' : '_';
+        
+        const data = `${name.padEnd(9, ' ')}${killByte}${this.symbolTable}${lat}${this.symbol}${lon}`;
+        
+        return this.createAPRSPacket(';', data);
+    }
+    
+    /**
+     * Create emergency beacon
+     */
+    createEmergencyBeacon() {
+        const lat = this.encodeLatitude(this.latitude);
+        const lon = this.encodeLongitude(this.longitude);
+        
+        // Emergency symbol
+        const data = `${this.symbolTable}${lat}${this.symbol}${lon}EMERGENCY - NEED RESCUE`;
+        
+        return this.createAPRSPacket('!', data);
+    }
+    
+    /**
+     * Create rescue status update
+     */
+    createRescueStatus(victimCount, depth, condition) {
+        const status = `RESCUE: ${victimCount} victims, depth ${depth}m, condition: ${condition}`;
+        return this.createStatusReport(status);
+    }
+    
+    /**
+     * Create core APRS packet
+     */
+    createAPRSPacket(dataType, data) {
+        const infoField = `${dataType}${data}`;
+        
+        const frame = new AX25Frame({
+            sourceCallsign: this.callsign,
+            sourceSSID: this.ssid,
+            destinationCallsign: 'APRS',
+            repeaterPath: ['WIDE1-1', 'WIDE2-1'],
+            infoField: infoField,
+        });
+        
+        return {
+            frame: frame,
+            infoField: infoField,
+            timestamp: Date.now(),
+            callsign: this.callsign,
+        };
+    }
+    
+    /**
+     * Encode latitude to APRS format
+     */
+    encodeLatitude(lat) {
+        const degrees = Math.abs(Math.floor(lat));
+        const minutes = (Math.abs(lat) - degrees) * 60;
+        
+        const ns = lat >= 0 ? 'N' : 'S';
+        
+        return `${degrees.toString().padStart(2, '0')}${minutes.toFixed(2).padStart(5, '0')}${ns}`;
+    }
+    
+    /**
+     * Encode longitude to APRS format
+     */
+    encodeLongitude(lon) {
+        const degrees = Math.abs(Math.floor(lon));
+        const minutes = (Math.abs(lon) - degrees) * 60;
+        
+        const ew = lon >= 0 ? 'E' : 'W';
+        
+        return `${degrees.toString().padStart(3, '0')}${minutes.toFixed(2).padStart(5, '0')}${ew}`;
+    }
+    
+    /**
+     * Encode timestamp
+     */
+    encodeTimestamp(timestamp) {
+        const date = new Date(timestamp);
+        const hours = date.getUTCHours().toString().padStart(2, '0');
+        const minutes = date.getUTCMinutes().toString().padStart(2, '0');
+        const seconds = date.getUTCSeconds().toString().padStart(2, '0');
+        
+        return `${hours}${minutes}${seconds}h`;
+    }
+}
+
+/**
+ * APRS Tracker Class
+ * Manages APRS tracking for multiple objects
+ */
+class APRSTracker {
+    constructor(config = {}) {
+        this.callsign = config.callsign || 'N0CALL';
+        this.frequency = config.frequency || APRS_CONFIG.frequencies.Americas;
+        this.objects = new Map();
+        
+        // Statistics
+        this.stats = {
+            packetsSent: 0,
+            lastBeacon: 0,
+        };
+    }
+    
+    /**
+     * Add object to track
+     */
+    addObject(name, config) {
+        const packet = new APRSPacket({
+            callsign: this.callsign,
+            ...config,
+        });
+        
+        this.objects.set(name, {
+            packet: packet,
+            lastUpdate: 0,
+            position: { lat: config.latitude, lon: config.longitude },
+        });
+        
+        console.log(`[APRS] Added object: ${name}`);
+    }
+    
+    /**
+     * Update object position
+     */
+    updatePosition(name, lat, lon) {
+        const obj = this.objects.get(name);
+        if (!obj) return false;
+        
+        obj.packet.latitude = lat;
+        obj.packet.longitude = lon;
+        obj.position = { lat, lon };
+        obj.lastUpdate = Date.now();
+        
+        return true;
+    }
+    
+    /**
+     * Send beacon for all objects
+     */
+    sendBeacons() {
+        this.objects.forEach((obj, name) => {
+            const packet = obj.packet.createPositionReport();
+            this.stats.packetsSent++;
+            this.stats.lastBeacon = Date.now();
+            
+            console.log(`[APRS] Beacon sent for ${name}`);
+        });
+    }
+    
+    /**
+     * Get object by name
+     */
+    getObject(name) {
+        return this.objects.get(name);
+    }
+    
+    /**
+     * Get all tracked objects
+     */
+    getAllObjects() {
+        return Array.from(this.objects.entries()).map(([name, obj]) => ({
+            name,
+            ...obj,
+        }));
+    }
+}
+
+// Export for use
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = { AX25Frame, APRSPacket, APRSTracker, APRS_CONFIG };
+}
+
+// Browser globals
+if (typeof window !== 'undefined') {
+    window.AX25Frame = AX25Frame;
+    window.APRSPacket = APRSPacket;
+    window.APRSTracker = APRSTracker;
+    window.APRS_CONFIG = APRS_CONFIG;
+}
+
+console.log('[APRS Protocol] Module loaded');
+
+
+================================================================================
+ARCHIVO 4: lora_mesh.js
+Red mallada LoRa de largo alcance y bajo consumo. Routing multi-hop con BFS,
+beaconing, propagación de paquetes con modelo Haversine de distancia.
+================================================================================
+
+/**
+ * ═══════════════════════════════════════════════════════════════
+ *  PROJECT LIFELINE CORE — LoRa Mesh Network Module v1.0
+ *  Long Range, Low Power Mesh for Disaster Response
+ * ═══════════════════════════════════════════════════════════════
+ */
+
+'use strict';
+
+/**
+ * LoRa Mesh Network Configuration
+ * Supports 433 MHz (Europe), 868 MHz (Europe), 915 MHz (Americas)
+ */
+const LORA_CONFIG = {
+    // Frequency bands
+    frequencies: {
+        EU433: { band: 433.05, maxPower: 10, maxRange: 10 },
+        EU868: { band: 868.0, maxPower: 14, maxRange: 12 },
+        US915: { band: 915.0, maxPower: 20, maxRange: 15 },
+    },
+    
+    // Spreading factors (SF7-SF12)
+    // Higher SF = longer range, lower data rate
+    spreadingFactors: {
+        SF7:  { range: 2,  dataRate: 5.47,  timeOnAir: 8.5 },
+        SF8:  { range: 3,  dataRate: 3.125, timeOnAir: 15 },
+        SF9:  { range: 5,  dataRate: 1.76,  timeOnAir: 27 },
+        SF10: { range: 7,  dataRate: 0.98,  timeOnAir: 48 },
+        SF11: { range: 10, dataRate: 0.54,  timeOnAir: 86 },
+        SF12: { range: 15, dataRate: 0.29,  timeOnAir: 154 },
+    },
+    
+    // Bandwidth options
+    bandwidths: {
+        BW125: 125,  // kHz - best range
+        BW250: 250,  // kHz - balanced
+        BW500: 500,  // kHz - fastest
+    },
+    
+    // Coding rates
+    codingRates: {
+        CR4_5: 1.25,  // 20% overhead
+        CR4_6: 1.5,   // 33% overhead
+        CR4_7: 1.75,  // 50% overhead
+        CR4_8: 2.0,   // 100% overhead (most robust)
+    },
+    
+    // Power levels (dBm)
+    powerLevels: {
+        LOW:    7,
+        MEDIUM: 14,
+        HIGH:   20,
+        MAX:    22,
+    },
+};
+
+/**
+ * LoRa Node Class
+ * Represents a single node in the mesh network
+ */
+class LoRaNode {
+    constructor(config) {
+        this.id = config.id || this.generateId();
+        this.name = config.name || `Node-${this.id.slice(0, 4)}`;
+        this.type = config.type || 'SCOUT'; // SCOUT, RELAY, VICTIM
+        
+        // Position
+        this.lat = config.lat || 0;
+        this.lon = config.lon || 0;
+        this.alt = config.alt || 0; // meters above sea level
+        
+        // Radio configuration
+        this.frequency = config.frequency || 'US915';
+        this.spreadingFactor = config.spreadingFactor || 'SF10';
+        this.bandwidth = config.bandwidth || 'BW125';
+        this.codingRate = config.codingRate || 'CR4_5';
+        this.txPower = config.txPower || 'MEDIUM';
+        
+        // Network state
+        this.isActive = false;
+        this.lastBeacon = 0;
+        this.neighborCount = 0;
+        this.hopCount = 0;
+        this.maxHops = config.maxHops || 5;
+        
+        // Packet handling
+        this.packetQueue = [];
+        this.sentPackets = new Map();
+        this.receivedPackets = new Set();
+        
+        // Callbacks
+        this.onPacket = config.onPacket || null;
+        this.onNodeJoin = config.onNodeJoin || null;
+        this.onNodeLeave = config.onNodeLeave || null;
+    }
+    
+    generateId() {
+        return Array.from({ length: 8 }, () =>
+            Math.floor(Math.random() * 256).toString(16).padStart(2, '0')
+        ).join('').toUpperCase();
+    }
+    
+    /**
+     * Activate the node and start beaconing
+     */
+    activate() {
+        this.isActive = true;
+        this.lastBeacon = Date.now();
+        console.log(`[${this.name}] Node activated on ${this.frequency}`);
+        return this;
+    }
+    
+    /**
+     * Deactivate the node
+     */
+    deactivate() {
+        this.isActive = false;
+        console.log(`[${this.name}] Node deactivated`);
+        return this;
+    }
+    
+    /**
+     * Create a beacon packet
+     */
+    createBeacon() {
+        const beacon = {
+            type: 'BEACON',
+            sourceId: this.id,
+            sourceName: this.name,
+            sourceType: this.type,
+            timestamp: Date.now(),
+            position: { lat: this.lat, lon: this.lon, alt: this.alt },
+            hopCount: this.hopCount,
+            battery: this.battery || 100,
+            signalStrength: this.getSignalStrength(),
+        };
+        
+        this.lastBeacon = Date.now();
+        return this.encodePacket(beacon);
+    }
+    
+    /**
+     * Create a data packet with payload
+     */
+    createDataPacket(payload, destinationId = null) {
+        const packet = {
+            type: 'DATA',
+            sourceId: this.id,
+            sourceName: this.name,
+            destinationId: destinationId, // null = broadcast
+            timestamp: Date.now(),
+            hopCount: this.hopCount,
+            payload: payload,
+            packetId: this.generatePacketId(),
+        };
+        
+        return this.encodePacket(packet);
+    }
+    
+    /**
+     * Create a relay packet (forward from another node)
+     */
+    createRelayPacket(originalPacket) {
+        const relay = {
+            ...originalPacket,
+            relayId: this.id,
+            relayName: this.name,
+            hopCount: originalPacket.hopCount + 1,
+            relayTimestamp: Date.now(),
+        };
+        
+        return this.encodePacket(relay);
+    }
+    
+    /**
+     * Generate unique packet ID
+     */
+    generatePacketId() {
+        return `${this.id}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    }
+    
+    /**
+     * Encode packet to LoRa frame format
+     */
+    encodePacket(packet) {
+        const frame = {
+            preamble: '0x34',  // LoRa preamble
+            header: {
+                version: 1,
+                type: packet.type,
+                sourceId: packet.sourceId,
+                destinationId: packet.destinationId || 'FF:FF:FF:FF', // Broadcast
+                hopCount: packet.hopCount || 0,
+                maxHops: this.maxHops,
+            },
+            payload: packet,
+            crc: this.calculateCRC(packet),
+        };
+        
+        return frame;
+    }
+    
+    /**
+     * Decode received frame
+     */
+    decodeFrame(frame) {
+        if (!frame || !frame.payload) {
+            return null;
+        }
+        
+        const packet = frame.payload;
+        
+        // Check if already received (dedup)
+        if (this.receivedPackets.has(packet.packetId)) {
+            return null;
+        }
+        
+        // Check hop limit
+        if (packet.hopCount >= this.maxHops) {
+            console.log(`[${this.name}] Packet exceeded max hops, dropping`);
+            return null;
+        }
+        
+        // Store as received
+        this.receivedPackets.add(packet.packetId);
+        
+        return packet;
+    }
+    
+    /**
+     * Process received packet
+     */
+    processPacket(frame) {
+        const packet = this.decodeFrame(frame);
+        if (!packet) return null;
+        
+        // If packet is for us or broadcast
+        if (packet.destinationId === this.id || packet.destinationId === 'FF:FF:FF:FF') {
+            if (this.onPacket) {
+                this.onPacket(packet);
+            }
+            return packet;
+        }
+        
+        // Relay packet if we're a relay node
+        if (this.type === 'RELAY' && packet.hopCount < this.maxHops) {
+            return this.createRelayPacket(packet);
+        }
+        
+        return null;
+    }
+    
+    /**
+     * Calculate CRC for packet integrity
+     */
+    calculateCRC(data) {
+        const str = JSON.stringify(data);
+        let crc = 0xFFFF;
+        for (let i = 0; i < str.length; i++) {
+            crc ^= str.charCodeAt(i) << 8;
+            for (let j = 0; j < 8; j++) {
+                if (crc & 0x8000) {
+                    crc = (crc << 1) ^ 0x1021;
+                } else {
+                    crc <<= 1;
+                }
+            }
+        }
+        return (crc & 0xFFFF).toString(16).padStart(4, '0').toUpperCase();
+    }
+    
+    /**
+     * Get estimated signal strength based on distance
+     */
+    getSignalStrength() {
+        const config = LORA_CONFIG.frequencies[this.frequency];
+        const sfConfig = LORA_CONFIG.spreadingFactors[this.spreadingFactor];
+        
+        // Simplified path loss model
+        const pathLoss = 20 * Math.log10(config.band) + 30;
+        const rssi = config.maxPower - pathLoss - (sfConfig.range * 2);
+        
+        return Math.max(-120, Math.min(-30, rssi));
+    }
+    
+    /**
+     * Calculate time on air for current settings
+     */
+    getTimeOnAir(payloadSize) {
+        const sf = LORA_CONFIG.spreadingFactors[this.spreadingFactor];
+        const bw = LORA_CONFIG.bandwidths[this.bandwidth];
+        const cr = LORA_CONFIG.codingRates[this.codingRate];
+        
+        // Simplified time on air calculation
+        const symbolTime = (Math.pow(2, parseInt(this.spreadingFactor.slice(2))) / bw) * 1000;
+        const preambleTime = (8 + 4.25) * symbolTime;
+        const payloadTime = (payloadSize * 8 * cr * symbolTime) / (bw / 1000);
+        
+        return preambleTime + payloadTime;
+    }
+}
+
+/**
+ * LoRa Mesh Network Class
+ * Manages multiple nodes and routing
+ */
+class LoRaMesh {
+    constructor(config = {}) {
+        this.frequency = config.frequency || 'US915';
+        this.networkId = config.networkId || 'LIFELINE-001';
+        
+        this.nodes = new Map();
+        this.routingTable = new Map();
+        this.packetLog = [];
+        
+        // Statistics
+        this.stats = {
+            totalPackets: 0,
+            successfulDeliveries: 0,
+            failedDeliveries: 0,
+            averageHops: 0,
+            averageLatency: 0,
+        };
+        
+        // Beacon interval
+        this.beaconInterval = config.beaconInterval || 5000; // 5 seconds
+        this.beaconTimer = null;
+    }
+    
+    /**
+     * Add a node to the mesh
+     */
+    addNode(node) {
+        if (this.nodes.has(node.id)) {
+            console.log(`[Mesh] Node ${node.name} already exists`);
+            return false;
+        }
+        
+        this.nodes.set(node.id, node);
+        this.routingTable.set(node.id, { nextHop: node.id, hops: 0, lastSeen: Date.now() });
+        
+        console.log(`[Mesh] Node ${node.name} (${node.id}) joined network`);
+        
+        // Notify other nodes
+        this.broadcastNodeJoin(node);
+        
+        return true;
+    }
+    
+    /**
+     * Remove a node from the mesh
+     */
+    removeNode(nodeId) {
+        const node = this.nodes.get(nodeId);
+        if (!node) return false;
+        
+        node.deactivate();
+        this.nodes.delete(nodeId);
+        this.routingTable.delete(nodeId);
+        
+        console.log(`[Mesh] Node ${node.name} left network`);
+        
+        return true;
+    }
+    
+    /**
+     * Start mesh network
+     */
+    start() {
+        console.log(`[Mesh] Starting LoRa mesh on ${this.frequency}`);
+        
+        // Activate all nodes
+        this.nodes.forEach(node => node.activate());
+        
+        // Start beaconing
+        this.startBeaconing();
+        
+        return this;
+    }
+    
+    /**
+     * Stop mesh network
+     */
+    stop() {
+        console.log('[Mesh] Stopping LoRa mesh');
+        
+        if (this.beaconTimer) {
+            clearInterval(this.beaconTimer);
+            this.beaconTimer = null;
+        }
+        
+        this.nodes.forEach(node => node.deactivate());
+        
+        return this;
+    }
+    
+    /**
+     * Start periodic beaconing
+     */
+    startBeaconing() {
+        this.beaconTimer = setInterval(() => {
+            this.nodes.forEach(node => {
+                if (node.isActive) {
+                    const beacon = node.createBeacon();
+                    this.processBeacon(node, beacon);
+                }
+            });
+        }, this.beaconInterval);
+    }
+    
+    /**
+     * Process received beacon
+     */
+    processBeacon(receivingNode, beacon) {
+        const sourceId = beacon.payload.sourceId;
+        
+        // Update routing table
+        this.routingTable.set(sourceId, {
+            nextHop: receivingNode.id,
+            hops: beacon.payload.hopCount,
+            lastSeen: Date.now(),
+            signalStrength: beacon.payload.signalStrength,
+        });
+        
+        // Log packet
+        this.packetLog.push({
+            type: 'BEACON',
+            source: sourceId,
+            receiver: receivingNode.id,
+            timestamp: Date.now(),
+        });
+        
+        this.stats.totalPackets++;
+    }
+    
+    /**
+     * Send data packet from source to destination
+     */
+    sendPacket(sourceId, destinationId, payload) {
+        const sourceNode = this.nodes.get(sourceId);
+        if (!sourceNode) {
+            console.log(`[Mesh] Source node ${sourceId} not found`);
+            return false;
+        }
+        
+        const packet = sourceNode.createDataPacket(payload, destinationId);
+        
+        console.log(`[Mesh] Sending packet from ${sourceNode.name} to ${destinationId || 'BROADCAST'}`);
+        
+        // Simulate packet propagation
+        this.propagatePacket(sourceNode, packet);
+        
+        return true;
+    }
+    
+    /**
+     * Propagate packet through mesh
+     */
+    propagatePacket(senderNode, packet, visited = new Set()) {
+        visited.add(senderNode.id);
+        
+        this.nodes.forEach(node => {
+            if (node.id === senderNode.id) return;
+            if (visited.has(node.id)) return;
+            
+            // Check if node is within range (simplified)
+            const distance = this.calculateDistance(
+                senderNode.lat, senderNode.lon,
+                node.lat, node.lon
+            );
+            
+            const config = LORA_CONFIG.frequencies[this.frequency];
+            const sfConfig = LORA_CONFIG.spreadingFactors[node.spreadingFactor];
+            
+            if (distance <= sfConfig.range * 1000) { // Convert km to meters
+                // Node is in range, send packet
+                const relayPacket = node.processPacket(packet);
+                
+                if (relayPacket) {
+                    this.stats.successfulDeliveries++;
+                    
+                    // Continue propagation
+                    if (relayPacket.destinationId && relayPacket.destinationId !== node.id) {
+                        setTimeout(() => {
+                            this.propagatePacket(node, relayPacket, visited);
+                        }, 100);
+                    }
+                }
+            }
+        });
+    }
+    
+    /**
+     * Broadcast node join notification
+     */
+    broadcastNodeJoin(node) {
+        const notification = {
+            type: 'NODE_JOIN',
+            sourceId: node.id,
+            sourceName: node.name,
+            sourceType: node.type,
+            timestamp: Date.now(),
+        };
+        
+        this.nodes.forEach(otherNode => {
+            if (otherNode.id !== node.id && otherNode.onNodeJoin) {
+                otherNode.onNodeJoin(notification);
+            }
+        });
+    }
+    
+    /**
+     * Calculate distance between two coordinates (Haversine)
+     */
+    calculateDistance(lat1, lon1, lat2, lon2) {
+        const R = 6371; // Earth's radius in km
+        const dLat = this.toRad(lat2 - lat1);
+        const dLon = this.toRad(lon2 - lon1);
+        const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                  Math.cos(this.toRad(lat1)) * Math.cos(this.toRad(lat2)) *
+                  Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return R * c;
+    }
+    
+    toRad(deg) {
+        return deg * (Math.PI / 180);
+    }
+    
+    /**
+     * Get network statistics
+     */
+    getStats() {
+        return {
+            ...this.stats,
+            nodeCount: this.nodes.size,
+            activeNodes: Array.from(this.nodes.values()).filter(n => n.isActive).length,
+            routingTableSize: this.routingTable.size,
+        };
+    }
+    
+    /**
+     * Get all active nodes
+     */
+    getActiveNodes() {
+        return Array.from(this.nodes.values()).filter(n => n.isActive);
+    }
+    
+    /**
+     * Find path between two nodes
+     */
+    findPath(sourceId, destinationId) {
+        if (sourceId === destinationId) {
+            return [sourceId];
+        }
+        
+        // Build adjacency graph from routing table (links are bidirectional)
+        const adjacency = new Map();
+        const addEdge = (a, b) => {
+            if (a === b) return; // ignore self-loops
+            if (!adjacency.has(a)) adjacency.set(a, []);
+            if (!adjacency.has(b)) adjacency.set(b, []);
+            adjacency.get(a).push(b);
+            adjacency.get(b).push(a);
+        };
+        
+        this.routingTable.forEach((route, nodeId) => {
+            if (route && route.nextHop) {
+                addEdge(nodeId, route.nextHop);
+            }
+        });
+        
+        // BFS from source to destination
+        const visited = new Set([sourceId]);
+        const queue = [[sourceId]];
+        
+        while (queue.length > 0) {
+            const path = queue.shift();
+            const current = path[path.length - 1];
+            
+            if (current === destinationId) {
+                return path;
+            }
+            
+            for (const neighbor of adjacency.get(current) || []) {
+                if (!visited.has(neighbor)) {
+                    visited.add(neighbor);
+                    queue.push([...path, neighbor]);
+                }
+            }
+        }
+        
+        return null; // No path found
+    }
+}
+
+// Export for use
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = { LoRaNode, LoRaMesh, LORA_CONFIG };
+}
+
+// Browser globals
+if (typeof window !== 'undefined') {
+    window.LoRaNode = LoRaNode;
+    window.LoRaMesh = LoRaMesh;
+    window.LORA_CONFIG = LORA_CONFIG;
+}
+
+console.log('[LoRa Mesh] Module loaded');
+
+
+================================================================================
+ARCHIVO 5: sdr_receiver.js
+Receptor SDR (Software Defined Radio) con DSP. Incluye FFT Cooley-Tukey,
+demodulación FM/AM, filtros IIR, números complejos, y scanner de frecuencias.
+================================================================================
+
+/**
+ * ═══════════════════════════════════════════════════════════════
+ *  PROJECT LIFELINE CORE — SDR Receiver Module v1.0
+ *  Software Defined Radio Concepts for Disaster Response
+ * ═══════════════════════════════════════════════════════════════
+ */
+
+'use strict';
+
+/**
+ * SDR Configuration
+ */
+const SDR_CONFIG = {
+    // Sample rates
+    sampleRates: {
+        LOW: 24000,
+        MEDIUM: 48000,
+        HIGH: 96000,
+        VERY_HIGH: 192000,
+        ULTRA: 250000,
+    },
+    
+    // Frequency ranges
+    frequencyRanges: {
+        VHF_LOW: { start: 136e6, end: 174e6, name: 'VHF Low' },
+        VHF_HIGH: { start: 174e6, end: 225e6, name: 'VHF High' },
+        UHF: { start: 420e6, end: 470e6, name: 'UHF' },
+        ISM_915: { start: 902e6, end: 928e6, name: 'ISM 915 MHz' },
+    },
+    
+    // Demodulation modes
+    demodModes: {
+        AM: 'AM',   // Amplitude Modulation
+        FM: 'FM',   // Frequency Modulation
+        WFM: 'WFM', // Wide FM
+        NFM: 'NFM', // Narrow FM
+        SSB: 'SSB', // Single Sideband
+        CW: 'CW',   // Continuous Wave
+        DRM: 'DRM', // Digital Radio Mondiale
+    },
+    
+    // Filter types
+    filterTypes: {
+        LOWPASS: 'lowpass',
+        HIGHPASS: 'highpass',
+        BANDPASS: 'bandpass',
+        BANDSTOP: 'bandstop',
+    },
+};
+
+/**
+ * Complex Number Class
+ * For DSP operations
+ */
+class Complex {
+    constructor(real = 0, imag = 0) {
+        this.real = real;
+        this.imag = imag;
+    }
+    
+    add(c) {
+        return new Complex(this.real + c.real, this.imag + c.imag);
+    }
+    
+    sub(c) {
+        return new Complex(this.real - c.real, this.imag - c.imag);
+    }
+    
+    mul(c) {
+        return new Complex(
+            this.real * c.real - this.imag * c.imag,
+            this.real * c.imag + this.imag * c.real
+        );
+    }
+    
+    magnitude() {
+        return Math.sqrt(this.real * this.real + this.imag * this.imag);
+    }
+    
+    phase() {
+        return Math.atan2(this.imag, this.real);
+    }
+    
+    conjugate() {
+        return new Complex(this.real, -this.imag);
+    }
+}
+
+/**
+ * DSP Helper Functions
+ */
+const DSP = {
+    /**
+     * Generate sine wave
+     */
+    sineWave(frequency, sampleRate, duration, phase = 0) {
+        const samples = Math.floor(sampleRate * duration);
+        const wave = new Float32Array(samples);
+        
+        for (let i = 0; i < samples; i++) {
+            const t = i / sampleRate;
+            wave[i] = Math.sin(2 * Math.PI * frequency * t + phase);
+        }
+        
+        return wave;
+    },
+    
+    /**
+     * Generate cosine wave
+     */
+    cosineWave(frequency, sampleRate, duration, phase = 0) {
+        const samples = Math.floor(sampleRate * duration);
+        const wave = new Float32Array(samples);
+        
+        for (let i = 0; i < samples; i++) {
+            const t = i / sampleRate;
+            wave[i] = Math.cos(2 * Math.PI * frequency * t + phase);
+        }
+        
+        return wave;
+    },
+    
+    /**
+     * FFT (Fast Fourier Transform)
+     */
+    fft(signal) {
+        const N = signal.length;
+        
+        if (N === 1) return [new Complex(signal[0], 0)];
+        
+        if (N & (N - 1)) {
+            throw new Error('FFT size must be power of 2');
+        }
+        
+        // Split
+        const even = new Float32Array(N / 2);
+        const odd = new Float32Array(N / 2);
+        
+        for (let i = 0; i < N / 2; i++) {
+            even[i] = signal[2 * i];
+            odd[i] = signal[2 * i + 1];
+        }
+        
+        // Recursive FFT
+        const X_even = this.fft(even);
+        const X_odd = this.fft(odd);
+        
+        const X = new Array(N);
+        
+        for (let k = 0; k < N / 2; k++) {
+            const angle = -2 * Math.PI * k / N;
+            const twiddle = new Complex(Math.cos(angle), Math.sin(angle));
+            
+            X[k] = X_even[k].add(twiddle.mul(X_odd[k]));
+            X[k + N / 2] = X_even[k].sub(twiddle.mul(X_odd[k]));
+        }
+        
+        return X;
+    },
+    
+    /**
+     * IFFT (Inverse FFT)
+     */
+    ifft(spectrum) {
+        const N = spectrum.length;
+        const out = new Array(N);
+        const half = N / 2;
+        
+        for (let k = 0; k < N; k++) {
+            // Término DC (real)
+            let sum = spectrum[0] ? spectrum[0].real : 0;
+            
+            // Armónicos 1..N/2-1: 2·Re(X[n]·e^{j·2πnk/N})
+            for (let n = 1; n < half; n++) {
+                const angle = 2 * Math.PI * n * k / N;
+                sum += 2 * (spectrum[n].real * Math.cos(angle) - spectrum[n].imag * Math.sin(angle));
+            }
+            
+            // Bin de Nyquist (N/2) — real si la señal original lo es
+            if (Number.isInteger(half) && spectrum[half]) {
+                sum += spectrum[half].real * Math.cos(Math.PI * k);
+            }
+            
+            out[k] = new Complex(sum / N, 0);
+        }
+        
+        return out;
+    },
+    
+    /**
+     * Low-pass filter
+     */
+    lowPass(signal, cutoff, sampleRate) {
+        const RC = 1 / (2 * Math.PI * cutoff);
+        const dt = 1 / sampleRate;
+        const alpha = dt / (RC + dt);
+        
+        const filtered = new Float32Array(signal.length);
+        filtered[0] = signal[0];
+        
+        for (let i = 1; i < signal.length; i++) {
+            filtered[i] = filtered[i - 1] + alpha * (signal[i] - filtered[i - 1]);
+        }
+        
+        return filtered;
+    },
+    
+    /**
+     * High-pass filter
+     */
+    highPass(signal, cutoff, sampleRate) {
+        const RC = 1 / (2 * Math.PI * cutoff);
+        const dt = 1 / sampleRate;
+        const alpha = RC / (RC + dt);
+        
+        const filtered = new Float32Array(signal.length);
+        filtered[0] = signal[0];
+        
+        for (let i = 1; i < signal.length; i++) {
+            filtered[i] = alpha * (filtered[i - 1] + signal[i] - signal[i - 1]);
+        }
+        
+        return filtered;
+    },
+    
+    /**
+     * Band-pass filter
+     */
+    bandPass(signal, lowCutoff, highCutoff, sampleRate) {
+        const highPassed = this.highPass(signal, lowCutoff, sampleRate);
+        return this.lowPass(highPassed, highCutoff, sampleRate);
+    },
+    
+    /**
+     * FM demodulation
+     */
+    fmDemodulate(signal, sampleRate, deviation = 75000) {
+        const demod = new Float32Array(signal.length - 1);
+        
+        for (let i = 0; i < signal.length - 1; i++) {
+            // Calculate instantaneous frequency
+            const phase1 = Math.atan2(signal[i], signal[i + 1]);
+            const phase2 = Math.atan2(signal[i + 1], signal[i + 2] || 0);
+            
+            demod[i] = (phase2 - phase1) * sampleRate / (2 * Math.PI * deviation);
+        }
+        
+        return demod;
+    },
+    
+    /**
+     * AM demodulation
+     */
+    amDemodulate(signal) {
+        const demod = new Float32Array(signal.length);
+        
+        for (let i = 0; i < signal.length; i++) {
+            demod[i] = Math.abs(signal[i]);
+        }
+        
+        return this.lowPass(demod, 5000, 48000);
+    },
+    
+    /**
+     * Calculate power spectrum
+     */
+    powerSpectrum(signal) {
+        const spectrum = this.fft(signal);
+        return spectrum.map(c => c.magnitude() * c.magnitude());
+    },
+    
+    /**
+     * Calculate SNR (Signal-to-Noise Ratio)
+     */
+    calculateSNR(signal, noiseFloor) {
+        const signalPower = signal.reduce((sum, s) => sum + s * s, 0) / signal.length;
+        return 10 * Math.log10(signalPower / noiseFloor);
+    },
+};
+
+/**
+ * SDR Receiver Class
+ * Simulates software defined radio receiver
+ */
+class SDRReceiver {
+    constructor(config = {}) {
+        this.frequency = config.frequency || 144.390e6; // APRS frequency
+        this.sampleRate = config.sampleRate || SDR_CONFIG.sampleRates.HIGH;
+        this.demodMode = config.demodMode || SDR_CONFIG.demodModes.FM;
+        this.bandwidth = config.bandwidth || 12500; // Hz
+        
+        // State
+        this.isReceiving = false;
+        this.gain = config.gain || 40; // dB
+        
+        // Buffer
+        this.buffer = [];
+        this.bufferSize = config.bufferSize || 8192;
+        
+        // Callbacks
+        this.onSignal = config.onSignal || null;
+        this.onData = config.onData || null;
+    }
+    
+    /**
+     * Start receiving
+     */
+    start() {
+        this.isReceiving = true;
+        console.log(`[SDR] Receiving on ${(this.frequency / 1e6).toFixed(3)} MHz`);
+        console.log(`[SDR] Sample rate: ${(this.sampleRate / 1e3).toFixed(1)} kHz`);
+        console.log(`[SDR] Demod: ${this.demodMode}`);
+        
+        // Simulate receiving
+        this.simulateReception();
+        
+        return this;
+    }
+    
+    /**
+     * Stop receiving
+     */
+    stop() {
+        this.isReceiving = false;
+        console.log('[SDR] Stopped receiving');
+        return this;
+    }
+    
+    /**
+     * Simulate signal reception
+     */
+    simulateReception() {
+        if (!this.isReceiving) return;
+        
+        // Generate noise floor
+        const noise = this.generateNoise(this.bufferSize);
+        
+        // Check for signals
+        const signal = this.detectSignal(noise);
+        
+        if (signal) {
+            console.log(`[SDR] Signal detected: ${signal.strength.toFixed(1)} dB`);
+            
+            if (this.onSignal) {
+                this.onSignal(signal);
+            }
+        }
+        
+        // Schedule next check
+        setTimeout(() => this.simulateReception(), 100);
+    }
+    
+    /**
+     * Generate random noise
+     */
+    generateNoise(samples) {
+        const noise = new Float32Array(samples);
+        
+        for (let i = 0; i < samples; i++) {
+            noise[i] = (Math.random() * 2 - 1) * 0.01;
+        }
+        
+        return noise;
+    }
+    
+    /**
+     * Detect signal in noise
+     */
+    detectSignal(noise) {
+        // Calculate noise power
+        const noisePower = noise.reduce((sum, n) => sum + n * n, 0) / noise.length;
+        
+        // Simulate random signal detection
+        if (Math.random() < 0.1) { // 10% chance of signal
+            return {
+                frequency: this.frequency + (Math.random() - 0.5) * 1000,
+                strength: -30 + Math.random() * 50, // -30 to +20 dB
+                bandwidth: 12500 + Math.random() * 5000,
+                type: 'unknown',
+                timestamp: Date.now(),
+            };
+        }
+        
+        return null;
+    }
+    
+    /**
+     * Tune to new frequency
+     */
+    tune(frequency) {
+        this.frequency = frequency;
+        console.log(`[SDR] Tuned to ${(frequency / 1e6).toFixed(3)} MHz`);
+        return this;
+    }
+    
+    /**
+     * Set demodulation mode
+     */
+    setDemodMode(mode) {
+        if (!Object.values(SDR_CONFIG.demodModes).includes(mode)) {
+            throw new Error(`Invalid demod mode: ${mode}`);
+        }
+        
+        this.demodMode = mode;
+        console.log(`[SDR] Demod mode: ${mode}`);
+        return this;
+    }
+    
+    /**
+     * Set gain
+     */
+    setGain(gain) {
+        this.gain = Math.max(0, Math.min(100, gain));
+        console.log(`[SDR] Gain: ${this.gain} dB`);
+        return this;
+    }
+    
+    /**
+     * Get spectrum data
+     */
+    getSpectrum() {
+        const signal = this.generateNoise(this.bufferSize);
+        return DSP.powerSpectrum(signal);
+    }
+}
+
+/**
+ * SDR Scanner Class
+ * Scans multiple frequencies for signals
+ */
+class SDRScanner {
+    constructor(config = {}) {
+        this.frequencies = config.frequencies || [];
+        this.sampleRate = config.sampleRate || SDR_CONFIG.sampleRates.HIGH;
+        this.dwellTime = config.dwellTime || 100; // ms per frequency
+        
+        this.isScanning = false;
+        this.currentIndex = 0;
+        
+        // Results
+        this.signals = new Map();
+        
+        // Callbacks
+        this.onSignalFound = config.onSignalFound || null;
+        this.onScanComplete = config.onScanComplete || null;
+    }
+    
+    /**
+     * Start scanning
+     */
+    start() {
+        this.isScanning = true;
+        console.log(`[Scanner] Starting scan of ${this.frequencies.length} frequencies`);
+        this.scanNext();
+        return this;
+    }
+    
+    /**
+     * Stop scanning
+     */
+    stop() {
+        this.isScanning = false;
+        console.log('[Scanner] Stopped');
+        return this;
+    }
+    
+    /**
+     * Scan next frequency
+     */
+    scanNext() {
+        if (!this.isScanning) return;
+        
+        const freq = this.frequencies[this.currentIndex];
+        
+        // Simulate detection
+        if (Math.random() < 0.05) { // 5% chance
+            const signal = {
+                frequency: freq,
+                strength: -30 + Math.random() * 50,
+                timestamp: Date.now(),
+            };
+            
+            this.signals.set(freq, signal);
+            
+            if (this.onSignalFound) {
+                this.onSignalFound(signal);
+            }
+        }
+        
+        this.currentIndex = (this.currentIndex + 1) % this.frequencies.length;
+        
+        // Continue scanning
+        setTimeout(() => this.scanNext(), this.dwellTime);
+    }
+    
+    /**
+     * Add frequency to scan list
+     */
+    addFrequency(frequency) {
+        if (!this.frequencies.includes(frequency)) {
+            this.frequencies.push(frequency);
+        }
+        return this;
+    }
+    
+    /**
+     * Remove frequency from scan list
+     */
+    removeFrequency(frequency) {
+        this.frequencies = this.frequencies.filter(f => f !== frequency);
+        return this;
+    }
+    
+    /**
+     * Get found signals
+     */
+    getSignals() {
+        return Array.from(this.signals.values());
+    }
+}
+
+// Export for use
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = { SDRReceiver, SDRScanner, SDR_CONFIG, DSP, Complex };
+}
+
+// Browser globals
+if (typeof window !== 'undefined') {
+    window.SDRReceiver = SDRReceiver;
+    window.SDRScanner = SDRScanner;
+    window.SDR_CONFIG = SDR_CONFIG;
+    window.DSP = DSP;
+    window.Complex = Complex;
+}
+
+console.log('[SDR Receiver] Module loaded');
+
+
+================================================================================
+FIN DEL DOCUMENTO DE CÓDIGO RF
+================================================================================
