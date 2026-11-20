@@ -13,7 +13,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Node.js >=18](https://img.shields.io/badge/Node.js-%3E%3D18-green.svg)](https://nodejs.org/)
 [![PWA Ready](https://img.shields.io/badge/PWA-Ready-blue.svg)](https://web.dev/progressive-web-apps/)
-[![Tests](https://img.shields.io/badge/Tests-334%20passing-brightgreen.svg)](#project-status)
+[![Tests](https://img.shields.io/badge/Tests-335%20passing-brightgreen.svg)](#project-status)
 [![Open Source](https://img.shields.io/badge/Open%20Source-MIT-orange.svg)](LICENSE)
 
 ## The Problem
@@ -79,6 +79,8 @@ node server.js
 
 Open your browser to `http://localhost:8000/index_integrated.html`
 
+Full user manual (Spanish): [docs/USER_MANUAL.md](docs/USER_MANUAL.md).
+
 ### Headless CLI
 
 Operate the full stack from a terminal, with no browser:
@@ -110,12 +112,12 @@ The integrated app includes a half-duplex voice channel using the phone micropho
 npm test
 ```
 
-All tests pass (334 tests across the full suite).
+All tests pass (335 tests across the full suite).
 
 ## Project Status
 
 - **Fully functional prototype** with complete RF stack implementation
-- **334 automated tests passing** with zero failures
+- **335 automated tests passing** with zero failures
 - **PWA installable** with offline capabilities
 - **Gateway deployment documented** for Raspberry Pi/Orange Pi
 - **MIT Licensed** - Free for humanitarian use
@@ -172,6 +174,8 @@ node server.js
 
 Abrir `http://localhost:8000/index_integrated.html` en el navegador.
 
+Manual de usuario completo: [docs/USER_MANUAL.md](docs/USER_MANUAL.md).
+
 ### CLI headless
 
 Operá el stack completo desde la terminal, sin navegador:
@@ -200,7 +204,7 @@ La app integrada incluye un canal de voz semidúplex con el micrófono y altavoz
 ## Estado del Proyecto
 
 - **Prototipo funcional completo** con stack RF implementado
-- **334 pruebas automatizadas** sin fallos
+- **335 pruebas automatizadas** sin fallos
 - **PWA instalable** con capacidades offline
 - **Gateway documentado** para Raspberry Pi/Orange Pi
 - **Licencia MIT** - Libre para uso humanitario

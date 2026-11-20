@@ -49,6 +49,7 @@
             this.onStatus = opts.onStatus || null;
 
             this._pc = null;
+            this._audioSender = null;
             this._localStream = null;      // NO vivo salvo durante talk(true)
             this.talking = false;
             this.connected = false;
@@ -79,6 +80,12 @@
             if (this._pc) return { ok: true, already: true };
             const pc = new this._rtc({ iceServers: [] });
             this._pc = pc;
+            if (typeof pc.addTransceiver === 'function') {
+                try {
+                    const transceiver = pc.addTransceiver('audio', { direction: 'sendrecv' });
+                    if (transceiver && transceiver.sender) this._audioSender = transceiver.sender;
+                } catch (e) {}
+            }
             pc.ontrack = (ev) => {
                 if (ev && ev.streams && ev.streams[0]) {
                     if (this.audioEl) this.audioEl.srcObject = ev.streams[0];
@@ -128,9 +135,19 @@
             try {
                 const stream = await this._gum({ audio: true });
                 this._localStream = stream;
-                stream.getAudioTracks().forEach((t) => {
-                    try { this._pc.addTrack(t, stream); } catch (e) { /* ya añadida */ }
-                });
+                const tracks = stream.getAudioTracks();
+                let attached = false;
+                if (this._audioSender && typeof this._audioSender.replaceTrack === 'function' && tracks[0]) {
+                    try {
+                        await this._audioSender.replaceTrack(tracks[0]);
+                        attached = true;
+                    } catch (e) {}
+                }
+                if (!attached) {
+                    tracks.forEach((t) => {
+                        try { this._pc.addTrack(t, stream); } catch (e) {}
+                    });
+                }
                 return { ok: true };
             } catch (e) {
                 this.error = 'MIC_PERMISO_DENEGADO';
@@ -140,6 +157,9 @@
 
         _releaseMic() {
             if (!this._localStream) return;
+            if (this._audioSender && typeof this._audioSender.replaceTrack === 'function') {
+                try { Promise.resolve(this._audioSender.replaceTrack(null)).catch(() => {}); } catch (e) {}
+            }
             this._localStream.getTracks().forEach((t) => { try { t.stop(); } catch (e) {} });
             this._localStream = null; // mic liberado de verdad
         }
@@ -190,6 +210,7 @@
             this.connected = false;
             if (this._pc) { try { this._pc.close(); } catch (e) {} }
             this._pc = null;
+            this._audioSender = null;
             this._status();
         }
     }

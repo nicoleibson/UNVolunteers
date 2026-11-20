@@ -70,6 +70,44 @@ test('voice PTT: talk(true) activa el mic bajo demanda y talk(false) lo libera',
     assert.equal(stopped, 1, 'la pista de micrófono se detiene (mic de verdad apagado)');
 });
 
+test('voice PTT: transceiver negociado permite replaceTrack sin renegociar', async () => {
+    const replaced = [];
+    let transceivers = 0;
+    function fakeRTCWithTransceiver() {
+        return function FakePC() {
+            this.connectionState = 'new';
+            this.iceGatheringState = 'new';
+            this.ontrack = null;
+            this.onconnectionstatechange = null;
+            this.addTransceiver = (kind, opts) => {
+                assert.equal(kind, 'audio');
+                assert.equal(opts && opts.direction, 'sendrecv');
+                transceivers++;
+                return { sender: { replaceTrack: async (track) => { replaced.push(track); } } };
+            };
+            this.addTrack = () => { throw new Error('addTrack no debía usarse'); };
+            this.removeEventListener = () => {};
+            this.addEventListener = () => {};
+            this.createOffer = async () => ({ sdp: 'offer' });
+            this.setLocalDescription = async (d) => { this.localDescription = d; this.iceGatheringState = 'complete'; };
+            this.setRemoteDescription = async () => {};
+            this.createAnswer = async () => ({ type: 'answer', sdp: 'answer' });
+            this.close = () => { this.connectionState = 'closed'; };
+        };
+    }
+
+    const v = new VoiceLink({ rtcCtor: fakeRTCWithTransceiver(), getUserMedia: async () => fakeStream() });
+    v.start();
+    assert.equal(transceivers, 1);
+    const on = await v.talk(true);
+    assert.equal(on.ok, true);
+    assert.equal(replaced.length, 1);
+    assert.equal(replaced[0].kind, 'audio');
+    const off = await v.talk(false);
+    assert.equal(off.ok, true);
+    assert.equal(replaced[1], null);
+});
+
 test('voice: sin permiso de micrófono → SIN_MIC honesto', async () => {
     const v = new VoiceLink({ rtcCtor: fakeRTC(), getUserMedia: null });
     v.start();
