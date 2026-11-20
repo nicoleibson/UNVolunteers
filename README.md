@@ -13,7 +13,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Node.js >=18](https://img.shields.io/badge/Node.js-%3E%3D18-green.svg)](https://nodejs.org/)
 [![PWA Ready](https://img.shields.io/badge/PWA-Ready-blue.svg)](https://web.dev/progressive-web-apps/)
-[![Tests](https://img.shields.io/badge/Tests-331%20passing-brightgreen.svg)](#project-status)
+[![Tests](https://img.shields.io/badge/Tests-334%20passing-brightgreen.svg)](#project-status)
 [![Open Source](https://img.shields.io/badge/Open%20Source-MIT-orange.svg)](LICENSE)
 
 ## The Problem
@@ -94,18 +94,28 @@ npm run cli -- doctor --json
 
 See [docs/CLI.md](docs/CLI.md) for the full command reference.
 
+### Short-Range Wi-Fi Voice (PTT Walkie)
+
+The integrated app includes a half-duplex voice channel using the phone microphone and speaker over WebRTC, with HTTP/SSE signaling through the gateway.
+
+- Put both devices on the same Wi-Fi or hotspot and use the same room name.
+- Open the `WALKIE WI-FI · VOZ PTT` panel, or start with `?voiceRoom=EQUIPO-1`.
+- One device taps `CREAR SALA / OFERTA`; the other taps `UNIRSE A SALA`.
+- Hold `PULSAR PARA HABLAR` to transmit; release to listen. The microphone is only active while transmitting.
+- Chrome requires HTTPS or `localhost` for microphone access. Manual SDP copy/paste is available as a fallback, but still needs a secure context.
+
 ### Run Tests
 
 ```bash
 npm test
 ```
 
-All tests pass (331 tests across the full suite).
+All tests pass (334 tests across the full suite).
 
 ## Project Status
 
 - **Fully functional prototype** with complete RF stack implementation
-- **331 automated tests passing** with zero failures
+- **334 automated tests passing** with zero failures
 - **PWA installable** with offline capabilities
 - **Gateway deployment documented** for Raspberry Pi/Orange Pi
 - **MIT Licensed** - Free for humanitarian use
@@ -177,10 +187,20 @@ npm run cli -- doctor --json
 
 Ver [docs/CLI.md](docs/CLI.md) para la referencia completa.
 
+### Voz Wi-Fi de corto alcance (walkie PTT)
+
+La app integrada incluye un canal de voz semidúplex con el micrófono y altavoz del teléfono sobre WebRTC, con señalización HTTP/SSE a través del gateway.
+
+- Poner ambos dispositivos en la misma Wi-Fi o hotspot y usar el mismo nombre de sala.
+- Abrir el panel `WALKIE WI-FI · VOZ PTT`, o iniciar con `?voiceRoom=EQUIPO-1`.
+- Un dispositivo toca `CREAR SALA / OFERTA`; el otro toca `UNIRSE A SALA`.
+- Mantener presionado `PULSAR PARA HABLAR` para transmitir; soltar para escuchar. El micrófono solo está activo durante la transmisión.
+- Chrome requiere HTTPS o `localhost` para acceder al micrófono. La señalización manual por copiar/pegar SDP está disponible como respaldo, pero también necesita contexto seguro.
+
 ## Estado del Proyecto
 
 - **Prototipo funcional completo** con stack RF implementado
-- **331 pruebas automatizadas** sin fallos
+- **334 pruebas automatizadas** sin fallos
 - **PWA instalable** con capacidades offline
 - **Gateway documentado** para Raspberry Pi/Orange Pi
 - **Licencia MIT** - Libre para uso humanitario

@@ -2241,6 +2241,215 @@ if (bindRtcMode) bindRtcMode.addEventListener('click', () => toggleRtcMode());
 const bindRtcRole = document.getElementById('btn-rtc-role');
 if (bindRtcRole) bindRtcRole.addEventListener('click', () => toggleRtcMode());
 
+let voiceLink = null;
+let voiceEs = null;
+let voiceRoom = 'EQUIPO-1';
+let voicePeer = null;
+let voiceRole = null;
+
+function voiceSetStatus(txt, color) {
+    const el = getEl('voice-status');
+    if (el) { el.textContent = txt; if (color) el.style.color = color; }
+    const peer = getEl('voice-peer');
+    if (peer) peer.textContent = voicePeer ? `par: ${voicePeer}` : 'par: —';
+}
+
+function voiceId() {
+    try {
+        let id = sessionStorage.getItem('lifeline-voice-id');
+        if (!id) {
+            id = 'CLI-' + Math.random().toString(36).slice(2, 6).toUpperCase();
+            sessionStorage.setItem('lifeline-voice-id', id);
+        }
+        return id;
+    } catch (e) {
+        return 'CLI-' + Math.random().toString(36).slice(2, 6).toUpperCase();
+    }
+}
+
+function voiceEnsureLink() {
+    if (voiceLink) return voiceLink;
+    if (typeof VoiceLink === 'undefined') {
+        voiceSetStatus('VOZ NO DISPONIBLE', '#ef4444');
+        return null;
+    }
+    const link = new VoiceLink({
+        audioEl: getEl('voice-remote'),
+        onStatus: (s) => {
+            const ptt = getEl('btn-voice-ptt');
+            if (ptt) ptt.disabled = !s.connected;
+            if (s.error) voiceSetStatus(`ERROR: ${s.error}`, '#ef4444');
+            else if (s.talking) voiceSetStatus('HABLANDO — MIC ACTIVO', '#ef4444');
+            else if (s.connected) voiceSetStatus('ENLACE ACTIVO — ESCUCHANDO', '#10b981');
+        },
+    });
+    const started = link.start();
+    if (!started.ok) {
+        voiceSetStatus(`VOZ NO DISPONIBLE: ${started.error}`, '#ef4444');
+        return null;
+    }
+    voiceLink = link;
+    return link;
+}
+
+async function voicePost(type, sdp) {
+    const body = { room: voiceRoom, from: voiceId(), type };
+    if (sdp) body.sdp = sdp;
+    try {
+        await fetch('/voice/signal', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+    } catch (e) {
+        voiceSetStatus('NO SE PUDO PUBLICAR — usa señalización manual', '#f59e0b');
+    }
+}
+
+async function voiceCreateOffer(auto) {
+    const link = voiceEnsureLink();
+    if (!link) return;
+    const res = await link.createOffer();
+    if (!res.ok) { voiceSetStatus(`OFERTA: ${res.error}`, '#ef4444'); return; }
+    const offer = JSON.stringify({ type: 'offer', sdp: res.sdp });
+    const out = getEl('voice-sdp-out');
+    if (out) out.value = offer;
+    if (auto) {
+        await voicePost('offer', offer);
+        voiceSetStatus('OFERTA PUBLICADA — esperando respuesta', '#06b6d4');
+    } else {
+        voiceSetStatus('OFERTA LISTA — cópiala al otro dispositivo', '#06b6d4');
+    }
+}
+
+async function voiceAcceptOffer(sdpText, from, auto) {
+    const link = voiceEnsureLink();
+    if (!link || !sdpText) return;
+    const res = await link.acceptOffer(sdpText);
+    if (!res.ok) { voiceSetStatus(`RESPUESTA: ${res.error}`, '#ef4444'); return; }
+    voicePeer = from || null;
+    const out = getEl('voice-sdp-out');
+    if (out) out.value = res.sdp;
+    if (auto) await voicePost('answer', res.sdp);
+    voiceSetStatus('RESPUESTA LISTA — conectando audio', '#06b6d4');
+}
+
+async function voiceComplete(sdpText) {
+    const link = voiceEnsureLink();
+    if (!link || !sdpText) return;
+    const res = await link.acceptOfferAnswer(sdpText);
+    if (!res.ok) { voiceSetStatus(`CONEXIÓN: ${res.error}`, '#ef4444'); return; }
+    voiceSetStatus('CONECTANDO AUDIO...', '#06b6d4');
+}
+
+function voiceHandleSignal(sig) {
+    if (!sig || sig.room !== voiceRoom || sig.from === voiceId()) return;
+    if (sig.type === 'offer') voiceAcceptOffer(sig.sdp, sig.from, true);
+    else if (sig.type === 'answer' && voiceRole === 'call') voiceComplete(sig.sdp);
+    else if (sig.type === 'hangup') voiceHangup(false);
+}
+
+function voiceOpenStream(role) {
+    if (typeof EventSource === 'undefined') {
+        voiceSetStatus('SSE NO DISPONIBLE — usa señalización manual', '#f59e0b');
+        return Promise.resolve();
+    }
+    voiceEs = new EventSource('/voice/stream?room=' + encodeURIComponent(voiceRoom));
+    return new Promise((resolve) => {
+        voiceEs.addEventListener('hello', (ev) => {
+            let data = {};
+            try { data = JSON.parse(ev.data || '{}'); } catch (e) {}
+            const signals = data.signals || [];
+            const offer = signals.filter((s) => s.type === 'offer').slice(-1)[0];
+            if (role === 'call') {
+                if (offer) voiceSetStatus('LA SALA YA TIENE OFERTA — usa UNIRSE', '#f59e0b');
+                else voiceCreateOffer(true);
+            } else if (offer) {
+                voiceAcceptOffer(offer.sdp, offer.from, true);
+            } else {
+                voiceSetStatus('ESPERANDO OFERTA...', '#f59e0b');
+            }
+            resolve();
+        });
+        voiceEs.addEventListener('message', (ev) => {
+            let sig = {};
+            try { sig = JSON.parse(ev.data || '{}'); } catch (e) {}
+            voiceHandleSignal(sig);
+        });
+        voiceEs.onerror = () => voiceSetStatus('SEÑALIZACIÓN SIN CONEXIÓN — usa modo manual', '#f59e0b');
+    });
+}
+
+async function voiceConnect(role) {
+    voiceHangup(false);
+    const input = getEl('voice-room');
+    voiceRoom = (input && input.value ? String(input.value) : 'EQUIPO-1').trim() || 'EQUIPO-1';
+    voiceRole = role;
+    voicePeer = null;
+    voiceSetStatus('CONECTANDO...', '#f59e0b');
+    if (!voiceEnsureLink()) return;
+    await voiceOpenStream(role);
+}
+
+function voiceHangup(post) {
+    if (voiceLink) { voiceLink.close(); voiceLink = null; }
+    if (voiceEs) { voiceEs.close(); voiceEs = null; }
+    const ptt = getEl('btn-voice-ptt');
+    if (ptt) ptt.disabled = true;
+    voiceRole = null;
+    if (post !== false) voicePost('hangup');
+    voiceSetStatus('CANAL CERRADO', '#64748b');
+}
+
+function voicePtt(on) {
+    if (!voiceLink || !voiceLink.connected) return;
+    Promise.resolve(voiceLink.talk(on)).then((r) => {
+        if (r && r.ok === false) voiceSetStatus(`PTT: ${r.error}`, '#ef4444');
+    });
+}
+
+window.voiceConnect = voiceConnect;
+window.voiceHangup = voiceHangup;
+window.voicePtt = voicePtt;
+window.getVoiceLink = () => voiceLink;
+
+const voiceRoomInput = document.getElementById('voice-room');
+if (voiceRoomInput) {
+    try {
+        const q = new URLSearchParams((globalThis.location && globalThis.location.search) || '').get('voiceRoom');
+        if (q) voiceRoomInput.value = q;
+    } catch (e) {}
+    voiceRoom = voiceRoomInput.value.trim() || voiceRoom;
+}
+
+const bindVoiceCall = document.getElementById('btn-voice-call');
+if (bindVoiceCall) bindVoiceCall.addEventListener('click', () => voiceConnect('call'));
+const bindVoiceJoin = document.getElementById('btn-voice-join');
+if (bindVoiceJoin) bindVoiceJoin.addEventListener('click', () => voiceConnect('join'));
+const bindVoiceHangup = document.getElementById('btn-voice-hangup');
+if (bindVoiceHangup) bindVoiceHangup.addEventListener('click', () => voiceHangup(true));
+const bindVoiceOffer = document.getElementById('btn-voice-offer');
+if (bindVoiceOffer) bindVoiceOffer.addEventListener('click', () => voiceCreateOffer(false));
+const bindVoiceAnswer = document.getElementById('btn-voice-answer');
+if (bindVoiceAnswer) bindVoiceAnswer.addEventListener('click', () => {
+    const inp = getEl('voice-sdp-in');
+    voiceAcceptOffer(inp && inp.value ? inp.value.trim() : '', null, false);
+});
+const bindVoiceComplete = document.getElementById('btn-voice-complete');
+if (bindVoiceComplete) bindVoiceComplete.addEventListener('click', () => {
+    const inp = getEl('voice-sdp-in');
+    voiceComplete(inp && inp.value ? inp.value.trim() : '');
+});
+const voicePttBtn = document.getElementById('btn-voice-ptt');
+if (voicePttBtn) {
+    const down = (e) => { e.preventDefault(); voicePtt(true); };
+    const up = (e) => { e.preventDefault(); voicePtt(false); };
+    voicePttBtn.addEventListener('pointerdown', down);
+    voicePttBtn.addEventListener('pointerup', up);
+    voicePttBtn.addEventListener('pointerleave', up);
+    voicePttBtn.addEventListener('pointercancel', up);
+}
+
 function renderThermalCanvas(frame) {
     const cv = getEl('thermal-canvas');
     if (!cv || !frame || !frame.temps) return;

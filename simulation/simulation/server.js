@@ -35,6 +35,11 @@ const DISCOVERY_DEFAULT_PORT = 42203;
 const DISCOVERY_INTERVAL_MS = 2000;
 const PEER_TTL_MS = 8000;
 
+const VOICE_MAX_BODY = 256 * 1024;
+const VOICE_MAX_SIGNALS = 32;
+const VOICE_ROOM_TTL_MS = 10 * 60 * 1000;
+const VOICE_HEARTBEAT_MS = 15000;
+
 // Directorio de módulos RF reales (radio/) para el alias /rf/ del navegador
 const RADIO_DIR = path.join(__dirname, '..', '..', 'radio');
 
@@ -199,6 +204,8 @@ function createServer(config = {}) {
         || defaultBroadcastAddress();
 
     const peers = new Map(); // instanceId -> { url, label, state, lastSeen }
+    const voiceRooms = new Map();
+    let voiceSignalId = 0;
     let discoverySocket = null;
     let discoveryBound = false;
     let advertiseTimer = null;
@@ -438,6 +445,94 @@ function createServer(config = {}) {
         req.on('error', () => cb(new Error('request')));
     }
 
+    function voiceRoomName(raw) {
+        const name = String(raw || '').trim();
+        return /^[A-Za-z0-9_-]{1,32}$/.test(name) ? name : null;
+    }
+
+    function getVoiceRoom(name) {
+        let room = voiceRooms.get(name);
+        if (!room) {
+            room = { signals: [], clients: new Set(), updatedAt: Date.now() };
+            voiceRooms.set(name, room);
+        }
+        if (Date.now() - room.updatedAt > VOICE_ROOM_TTL_MS) room.signals = [];
+        room.updatedAt = Date.now();
+        return room;
+    }
+
+    function voiceBroadcast(room, event) {
+        const data = `data: ${JSON.stringify(event)}\n\n`;
+        room.clients.forEach((res) => {
+            try { res.write(data); } catch (e) {}
+        });
+    }
+
+    function handleVoiceStream(req, res) {
+        if (req.method !== 'GET') { sendError(res, 405, 'Method Not Allowed'); return; }
+        let name;
+        try { name = voiceRoomName(new URL(req.url, 'http://localhost').searchParams.get('room')); }
+        catch (e) { name = null; }
+        if (!name) { sendError(res, 400, 'Sala inválida'); return; }
+
+        const room = getVoiceRoom(name);
+        res.writeHead(200, {
+            ...SECURITY_HEADERS,
+            ...CORS_HEADERS,
+            'Content-Type': 'text/event-stream; charset=utf-8',
+            'Cache-Control': 'no-cache, no-transform',
+            'Connection': 'keep-alive',
+            'X-Accel-Buffering': 'no',
+        });
+        res.write(`event: hello\ndata: ${JSON.stringify({
+            room: name,
+            signals: room.signals.slice(-VOICE_MAX_SIGNALS),
+        })}\n\n`);
+        room.clients.add(res);
+        const heartbeat = setInterval(() => {
+            try { res.write(': ping\n\n'); } catch (e) {}
+        }, VOICE_HEARTBEAT_MS);
+        req.on('close', () => {
+            clearInterval(heartbeat);
+            room.clients.delete(res);
+        });
+    }
+
+    function handleVoiceSignal(req, res) {
+        if (req.method === 'GET') {
+            let name;
+            try { name = voiceRoomName(new URL(req.url, 'http://localhost').searchParams.get('room')); }
+            catch (e) { name = null; }
+            if (!name) { sendError(res, 400, 'Sala inválida'); return; }
+            const room = getVoiceRoom(name);
+            json(res, { ok: true, room: name, signals: room.signals.slice(-VOICE_MAX_SIGNALS) });
+            return;
+        }
+        if (req.method !== 'POST') { sendError(res, 405, 'Method Not Allowed'); return; }
+        readBody(req, (err, body) => {
+            if (err) { sendError(res, 400, 'JSON inválido'); return; }
+            const name = voiceRoomName(body && body.room);
+            const type = String((body && body.type) || '');
+            const from = String((body && body.from) || '').slice(0, 32) || 'ANON';
+            const sdp = typeof (body && body.sdp) === 'string' ? body.sdp : null;
+            if (!name || !['offer', 'answer', 'hangup'].includes(type)) {
+                sendError(res, 400, 'Señal inválida');
+                return;
+            }
+            if (type !== 'hangup' && (!sdp || sdp.length > VOICE_MAX_BODY)) {
+                sendError(res, 400, 'SDP inválido');
+                return;
+            }
+            const room = getVoiceRoom(name);
+            const event = { id: ++voiceSignalId, ts: Date.now(), room: name, from, type };
+            if (sdp) event.sdp = sdp;
+            room.signals.push(event);
+            if (room.signals.length > VOICE_MAX_SIGNALS) room.signals.shift();
+            voiceBroadcast(room, event);
+            json(res, { ok: true, id: event.id, room: name });
+        });
+    }
+
     /** Identidad + estado (GET) o reporte de estado (POST) del dispositivo. */
     function handleApiState(req, res) {
         if (req.method === 'GET') {
@@ -550,6 +645,15 @@ function createServer(config = {}) {
         }
         if (pathname === '/api/peers') {
             handleApiPeers(req, res);
+            return;
+        }
+
+        if (pathname === '/voice/stream') {
+            handleVoiceStream(req, res);
+            return;
+        }
+        if (pathname === '/voice/signal') {
+            handleVoiceSignal(req, res);
             return;
         }
 

@@ -4,7 +4,7 @@
 // Versión del caché: bump CACHE_VERSION al desplegar cambios de la shell.
 'use strict';
 
-const CACHE_VERSION = 'lifeline-shell-v3';
+const CACHE_VERSION = 'lifeline-shell-v4';
 const CACHE_NAME = CACHE_VERSION;
 
 const APP_SHELL = [
@@ -24,6 +24,7 @@ const APP_SHELL = [
     './rf/frequency_mgr.js',
     './rf/radio_driver.js',
     './rf/ble_bridge.js',
+    './rf/voice_link.js',
     './manifest.webmanifest',
     './icons/icon-192.png',
     './icons/icon-512.png',
@@ -31,7 +32,7 @@ const APP_SHELL = [
 
 function isApiRequest(url) {
     const p = url.pathname;
-    return p.startsWith('/api/') || p.startsWith('/relay/');
+    return p.startsWith('/api/') || p.startsWith('/relay/') || p.startsWith('/voice/');
 }
 
 self.addEventListener('install', (event) => {

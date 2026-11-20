@@ -492,6 +492,53 @@
         </div>
     </section>
 
+    <section class="card" id="panel-voice">
+        <div class="card-header">
+            <h2>WALKIE WI-FI · VOZ PTT</h2>
+            <div class="scanner-wrap">
+                <span class="mono" style="font-size:0.65rem; color:#06b6d4;">COMUNICADOR DE CORTO ALCANCE</span>
+            </div>
+        </div>
+        <div class="radar-body" style="padding:10px;">
+            <div class="rescue-box rtc-box" id="voice-box">
+                <div class="rescue-head">
+                    <span style="font-family:var(--font-mono);letter-spacing:0.1em;font-size:0.62rem;color:var(--rf-green);text-transform:uppercase;">SEMIDÚPLEX · MIC APAGADO EN ESCUCHA</span>
+                    <span id="voice-status" style="font-size:0.6rem;color:#64748b;">SIN CANAL</span>
+                </div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0;">
+                    <label style="font-family:var(--font-mono);font-size:0.58rem;color:var(--muted);">SALA</label>
+                    <input id="voice-room" type="text" value="EQUIPO-1" maxlength="32" style="flex:1;min-width:120px;background:#0a1220;color:#a5f3fc;border:1px solid #334155;border-radius:4px;font-family:var(--font-mono);font-size:0.65rem;padding:6px;">
+                    <span id="voice-peer" style="font-family:var(--font-mono);font-size:0.58rem;color:var(--muted);">par: —</span>
+                </div>
+                <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin:6px 0;">
+                    <button class="btn btn-secondary" id="btn-voice-call" style="font-size:0.6rem;">① CREAR SALA / OFERTA</button>
+                    <button class="btn btn-secondary" id="btn-voice-join" style="font-size:0.6rem;">② UNIRSE A SALA</button>
+                    <button class="btn btn-secondary" id="btn-voice-hangup" style="font-size:0.6rem;">✖ COLGAR</button>
+                </div>
+                <div style="text-align:center;margin:10px 0;">
+                    <button class="btn btn-action" id="btn-voice-ptt" disabled style="font-size:0.9rem;padding:12px 28px;min-width:200px;background:#ef4444;color:#fff;border-radius:8px;">PULSAR PARA HABLAR</button>
+                    <div style="font-family:var(--font-mono);font-size:0.54rem;color:var(--muted);margin-top:4px;">Mantener presionado · soltar para escuchar</div>
+                </div>
+                <audio id="voice-remote" autoplay playsinline></audio>
+                <details style="margin-top:8px;">
+                    <summary style="font-family:var(--font-mono);font-size:0.58rem;color:var(--muted);cursor:pointer;">Señalización manual (copiar/pegar)</summary>
+                    <label style="font-family:var(--font-mono);font-size:0.58rem;color:var(--muted);width:100%;">Pegar OFERTA o RESPUESTA →</label>
+                    <textarea id="voice-sdp-in" rows="3" spellcheck="false" style="width:100%;background:#0a1220;color:#a5f3fc;border:1px solid #334155;border-radius:4px;font-family:var(--font-mono);font-size:0.6rem;padding:6px;"></textarea>
+                    <label style="font-family:var(--font-mono);font-size:0.58rem;color:var(--muted);width:100%;">← Copiar de aquí</label>
+                    <textarea id="voice-sdp-out" rows="3" readonly spellcheck="false" style="width:100%;background:#0a1220;color:#86efac;border:1px solid #334155;border-radius:4px;font-family:var(--font-mono);font-size:0.6rem;padding:6px;"></textarea>
+                    <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin-top:6px;">
+                        <button class="btn btn-secondary" id="btn-voice-offer" style="font-size:0.6rem;">CREAR OFERTA</button>
+                        <button class="btn btn-secondary" id="btn-voice-answer" style="font-size:0.6rem;">RESPONDER OFERTA</button>
+                        <button class="btn btn-secondary" id="btn-voice-complete" style="font-size:0.6rem;">APLICAR RESPUESTA</button>
+                    </div>
+                </details>
+                <div style="font-family:var(--font-mono);font-size:0.54rem;color:var(--muted);text-align:center;margin-top:6px;">
+                    El micrófono requiere HTTPS o localhost en Chrome. Dos dispositivos en la misma Wi-Fi/Hotspot y la misma sala.
+                </div>
+            </div>
+        </div>
+    </section>
+
     <!-- ── DETECCIONES EN VIVO: reflejo inmediato de los datos recibidos ── -->
     <section class="card" id="panel-detections">
         <div class="card-header">
@@ -1052,6 +1099,7 @@
 <script src="/rf/atmosphere_bridge.js"></script>
 <script src="/rf/field_bridge.js"></script>
 <script src="/rf/webrtc_link.js"></script>
+<script src="/rf/voice_link.js"></script>
 <script src="/rf/thermal_cam.js"></script>
 <script src="/rf/excavation_cam.js"></script>
 <script src="/rf/dtn_store.js"></script>
