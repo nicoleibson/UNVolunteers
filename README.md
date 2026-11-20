@@ -13,7 +13,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Node.js >=18](https://img.shields.io/badge/Node.js-%3E%3D18-green.svg)](https://nodejs.org/)
 [![PWA Ready](https://img.shields.io/badge/PWA-Ready-blue.svg)](https://web.dev/progressive-web-apps/)
-[![Tests](https://img.shields.io/badge/Tests-277%2B%20passing-brightgreen.svg)](#project-status)
+[![Tests](https://img.shields.io/badge/Tests-331%20passing-brightgreen.svg)](#project-status)
 [![Open Source](https://img.shields.io/badge/Open%20Source-MIT-orange.svg)](LICENSE)
 
 ## The Problem
@@ -79,18 +79,33 @@ node server.js
 
 Open your browser to `http://localhost:8000/index_integrated.html`
 
+### Headless CLI
+
+Operate the full stack from a terminal, with no browser:
+
+```bash
+npm run cli -- run --name NODO-A --peer 192.168.0.5:21000
+
+# In another terminal
+npm run cli -- status
+npm run cli -- send HOLA EQUIPO
+npm run cli -- doctor --json
+```
+
+See [docs/CLI.md](docs/CLI.md) for the full command reference.
+
 ### Run Tests
 
 ```bash
 npm test
 ```
 
-All tests pass (277+ tests across the full suite).
+All tests pass (331 tests across the full suite).
 
 ## Project Status
 
 - **Fully functional prototype** with complete RF stack implementation
-- **277+ automated tests passing** with zero failures
+- **331 automated tests passing** with zero failures
 - **PWA installable** with offline capabilities
 - **Gateway deployment documented** for Raspberry Pi/Orange Pi
 - **MIT Licensed** - Free for humanitarian use
@@ -147,10 +162,25 @@ node server.js
 
 Abrir `http://localhost:8000/index_integrated.html` en el navegador.
 
+### CLI headless
+
+Operá el stack completo desde la terminal, sin navegador:
+
+```bash
+npm run cli -- run --name NODO-A --peer 192.168.0.5:21000
+
+# En otra terminal
+npm run cli -- status
+npm run cli -- send HOLA EQUIPO
+npm run cli -- doctor --json
+```
+
+Ver [docs/CLI.md](docs/CLI.md) para la referencia completa.
+
 ## Estado del Proyecto
 
 - **Prototipo funcional completo** con stack RF implementado
-- **277+ pruebas automatizadas** sin fallos
+- **331 pruebas automatizadas** sin fallos
 - **PWA instalable** con capacidades offline
 - **Gateway documentado** para Raspberry Pi/Orange Pi
 - **Licencia MIT** - Libre para uso humanitario

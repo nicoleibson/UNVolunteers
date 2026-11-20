@@ -240,11 +240,11 @@
             try {
                 engine.dtn = new R.DtnStore({
                     key: config.key,
-                    io: (typeof global !== 'undefined' && global.localStorage) ? {
+                    io: config.dtnIO || ((typeof global !== 'undefined' && global.localStorage) ? {
                         get: (k) => global.localStorage.getItem(k),
                         set: (k, v) => global.localStorage.setItem(k, v),
                         remove: (k) => global.localStorage.removeItem(k),
-                    } : undefined,
+                    } : undefined),
                 });
             } catch (e) {
                 engine.dtn = null;

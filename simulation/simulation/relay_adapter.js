@@ -128,11 +128,25 @@
             this.peerTimer = null;
             this.slowTransport = null;
             this._orig = {};
+            // Transporte inyectable: el navegador usa EventSource/fetch globales;
+            // Node puede pasar un SSE propio (cli/node_event_source.js) y fetch.
+            this.fetchImpl = opts.fetchImpl || null;
+            this.EventSourceImpl = opts.EventSource || null;
         }
 
-        /** ¿El navegador dispone de EventSource + fetch para el relay? */
+        _getFetch() {
+            if (this.fetchImpl) return this.fetchImpl;
+            return typeof fetch === 'function' ? fetch.bind(globalThis) : null;
+        }
+
+        _getEventSource() {
+            if (this.EventSourceImpl) return this.EventSourceImpl;
+            return typeof EventSource !== 'undefined' ? EventSource : null;
+        }
+
+        /** ¿Hay EventSource + fetch para el relay? */
         get available() {
-            return typeof EventSource !== 'undefined' && typeof fetch === 'function';
+            return !!this._getEventSource() && !!this._getFetch();
         }
 
         /**
@@ -151,14 +165,15 @@
          * @returns {boolean} true si el transporte quedó activo.
          */
         connect() {
-            if (!this.available || !this.mesh) {
+            const ES = this._getEventSource();
+            if (!ES || !this._getFetch() || !this.mesh) {
                 this.error = this.mesh ? 'no-browser-api' : 'no-mesh';
                 this._log('relay', `Relay no disponible (${this.error})`);
                 return false;
             }
             this._hookMesh();
             try {
-                this.es = new EventSource(this.relayUrl + '/relay/stream');
+                this.es = new ES(this.relayUrl + '/relay/stream');
             } catch (e) {
                 this.error = e.message;
                 this._log('relay', 'Error creando EventSource: ' + e.message);
@@ -180,8 +195,9 @@
          */
         setAlertState(state) {
             this.alertState = state || 'DORMANT';
-            if (typeof fetch === 'function') {
-                fetch(this.relayUrl + '/api/state', {
+            const f = this._getFetch();
+            if (f) {
+                f(this.relayUrl + '/api/state', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ state: this.alertState, label: this.name }),
@@ -218,9 +234,10 @@
 
         /** Consulta los pares descubiertos por el servidor local. */
         async _refreshPeers() {
-            if (typeof fetch !== 'function') return;
+            const f = this._getFetch();
+            if (!f) return;
             try {
-                const r = await fetch(this.relayUrl + '/api/peers');
+                const r = await f(this.relayUrl + '/api/peers');
                 if (!r.ok) return;
                 const j = await r.json();
                 const list = (j && j.peers) || [];
@@ -257,8 +274,9 @@
          * @param {string} url p. ej. 'http://192.168.0.5:8000'.
          */
         addManualPeer(url) {
-            if (typeof fetch !== 'function') return false;
-            fetch(this.relayUrl + '/api/peers', {
+            const f = this._getFetch();
+            if (!f) return false;
+            f(this.relayUrl + '/api/peers', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ peers: [url] }),
@@ -316,7 +334,8 @@
          * pares (malla completa): POST /relay/send a cada destino.
          */
         _sendFrame(frame, kind) {
-            if (typeof fetch !== 'function') return;
+            const f = this._getFetch();
+            if (!f) return;
             const body = JSON.stringify({
                 v: PROTO_VERSION,
                 instanceId: this.instanceId,
@@ -330,7 +349,7 @@
             targets.forEach((t) => {
                 if (t === null || t === undefined) return;
                 this.stats.tx++;
-                fetch(String(t).replace(/\/+$/, '') + '/relay/send', {
+                f(String(t).replace(/\/+$/, '') + '/relay/send', {
                     method: 'POST',
                     headers: { 'Content-Type': 'text/plain' },
                     body,

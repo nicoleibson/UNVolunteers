@@ -365,7 +365,7 @@ class APRSPacket {
      * Encode latitude to APRS format
      */
     encodeLatitude(lat) {
-        const degrees = Math.abs(Math.floor(lat));
+        const degrees = Math.floor(Math.abs(lat));
         const minutes = (Math.abs(lat) - degrees) * 60;
         
         const ns = lat >= 0 ? 'N' : 'S';
@@ -377,7 +377,7 @@ class APRSPacket {
      * Encode longitude to APRS format
      */
     encodeLongitude(lon) {
-        const degrees = Math.abs(Math.floor(lon));
+        const degrees = Math.floor(Math.abs(lon));
         const minutes = (Math.abs(lon) - degrees) * 60;
         
         const ew = lon >= 0 ? 'E' : 'W';

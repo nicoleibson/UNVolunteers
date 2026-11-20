@@ -79,8 +79,8 @@ test('APRS: reportes con prefijo de tipo único y válido', () => {
 test('APRS: posición BA codifica coordenadas correctas', () => {
     const p = new APRSPacket({ callsign: 'LU1PNUD', ...BA });
     const info = p.createPositionReport().infoField;
-    assert.ok(info.includes('35-23.78S'), info);
-    assert.ok(info.includes('059-37.10W'), info);
+    assert.ok(info.includes('3436.22S'), info);
+    assert.ok(info.includes('05822.90W'), info);
 });
 
 test('APRS: telemetría múltiples canales', () => {
